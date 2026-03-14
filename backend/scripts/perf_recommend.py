@@ -255,6 +255,14 @@ def _write_upload_json(out_dir: Path, payload: dict) -> None:
     (out_dir / "upload.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _log_line(log_path: Path, msg: str) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(msg)
+        if not msg.endswith("\n"):
+            f.write("\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Profile a command with perf and apply OpenAI recommendations.")
     parser.add_argument("--command", required=True, help="Command to profile")
@@ -271,22 +279,32 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     repo_root = Path(args.repo_root).resolve()
 
+    log_path = out_dir / "perf_recommend.log"
+    _log_line(log_path, "perf_recommend: start")
+
     result: dict = {"changed_files": []}
     response = ""
     stat_text = ""
     report_text = ""
 
     try:
+        _log_line(log_path, f"perf_stat: {args.command}")
         stat_text = perf_stat(args.command, args.timeout)
+        _log_line(log_path, "perf_stat: ok")
+        _log_line(log_path, "perf_record_report: start")
         report_text = perf_record_report(args.command, out_dir, args.timeout)
+        _log_line(log_path, "perf_record_report: ok")
         symbols = parse_hot_symbols(report_text)
+        _log_line(log_path, f"hot_symbols: {symbols}")
         selected_files = select_source_files(repo_root, symbols, max_files=3)
+        _log_line(log_path, f"selected_files: {[p.as_posix() for p in selected_files]}")
         source_bundle = read_source_bundle(selected_files)
 
         api_key = args.openai_api_key or os.getenv("OPENAI_API_KEY", "")
         if not api_key:
             raise RuntimeError("Missing OPENAI_API_KEY")
 
+        _log_line(log_path, "openai: request")
         messages = build_prompt(
             args.command,
             stat_text,
@@ -296,6 +314,7 @@ def main() -> int:
             selected_files,
         )
         response = call_openai(messages, args.model, args.openai_url, api_key)
+        _log_line(log_path, "openai: ok")
 
         llm_path = out_dir / "llm_output.txt"
         llm_path.write_text(response, encoding="utf-8")
@@ -307,14 +326,19 @@ def main() -> int:
             payload = {}
 
         result["changed_files"] = apply_changes(repo_root, payload)
+        _log_line(log_path, f"changed_files: {result['changed_files']}")
     except Exception as exc:
         result["error"] = str(exc)
+        _log_line(log_path, f"error: {exc}")
 
     zip_path = out_dir / "source.zip"
     try:
+        _log_line(log_path, f"zip_source: {zip_path}")
         zip_source(repo_root, zip_path)
+        _log_line(log_path, "zip_source: ok")
     except Exception as exc:
         result["zip_error"] = str(exc)
+        _log_line(log_path, f"zip_error: {exc}")
         _write_upload_json(out_dir, result)
         print(json.dumps(result))
         return 1
@@ -324,21 +348,26 @@ def main() -> int:
     supabase_bucket = os.getenv("SUPABASE_SOURCE_BUCKET", "")
     if not supabase_url or not supabase_key or not supabase_bucket:
         result["upload_error"] = "Missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SOURCE_BUCKET"
+        _log_line(log_path, "upload_error: missing supabase env")
         _write_upload_json(out_dir, result)
         print(json.dumps(result))
         return 1
 
     try:
+        _log_line(log_path, "supabase_upload: start")
         object_name, signed_url = supabase_upload(
             supabase_url, supabase_key, supabase_bucket, zip_path
         )
         result["zip_object"] = object_name
         result["signed_url"] = signed_url
+        _log_line(log_path, f"supabase_upload: ok object={object_name}")
     except Exception as exc:
         result["upload_error"] = str(exc)
+        _log_line(log_path, f"upload_error: {exc}")
 
     _write_upload_json(out_dir, result)
     print(json.dumps(result))
+    _log_line(log_path, "perf_recommend: done")
     return 0
 
 
