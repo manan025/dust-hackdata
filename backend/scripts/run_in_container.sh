@@ -4,10 +4,11 @@ set -euo pipefail
 
 WORKDIR="${1:-/work}"
 OUTDIR="${OUTDIR:-/out}"
-PERF_LOOPS="${PERF_LOOPS:-3}"
+PERF_RECOMMENDATIONS="${PERF_RECOMMENDATIONS:-3}"
+OPENAI_MODEL="${OPENAI_MODEL:-gpt-4o-mini}"
+OPENAI_BASE_URL="${OPENAI_BASE_URL:-https://api.openai.com/v1}"
 
 cd "$WORKDIR"
-export PYTHONPATH="/runner:${PYTHONPATH:-}"
 
 main_lang="$(python3 - <<'PY'
 import os
@@ -213,17 +214,14 @@ if [ -z "$run_cmd" ]; then
 fi
 
 profile_cmd="$run_cmd"
-echo "Profiling command with perf-agent: $profile_cmd"
-python3 -m perf_agent.cli \
+echo "Profiling command with perf-recommend: $profile_cmd"
+python3 /runner/perf_recommend.py \
   --command "$profile_cmd" \
-  --loops "$PERF_LOOPS" \
+  --recommendations "$PERF_RECOMMENDATIONS" \
+  --model "$OPENAI_MODEL" \
+  --openai-url "$OPENAI_BASE_URL" \
   --out-dir "$OUTDIR"
 
-if [ -f "$OUTDIR/llm_output.txt" ]; then
-  echo "=== LLM OUTPUT ==="
-  cat "$OUTDIR/llm_output.txt"
-fi
-
 cat > "$OUTDIR/metadata.json" <<EOF
-{"language":"$main_lang","test_cmd":"$test_cmd","run_cmd":"$run_cmd","profile_cmd":"$profile_cmd","perf_loops":$PERF_LOOPS}
+{"language":"$main_lang","test_cmd":"$test_cmd","run_cmd":"$run_cmd","profile_cmd":"$profile_cmd","perf_recommendations":$PERF_RECOMMENDATIONS}
 EOF
