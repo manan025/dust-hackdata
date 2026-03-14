@@ -87,17 +87,18 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	defer logFile.Close()
 
-	runCmd := exec.Command(
-		"docker",
+	args := []string{
 		"run",
 		"--rm",
 		"--privileged",
 		"-v", fmt.Sprintf("%s:/work", repoDir),
 		"-v", fmt.Sprintf("%s:/out", artifactsDir),
-		dockerImage,
-		"/runner/run_in_container.sh",
-		"/work",
-	)
+	}
+	if _, err := os.Stat("/usr/bin/perf"); err == nil {
+		args = append(args, "-v", "/usr/bin/perf:/host-perf/perf:ro")
+	}
+	args = append(args, dockerImage, "/runner/run_in_container.sh", "/work")
+	runCmd := exec.Command("docker", args...)
 	runCmd.Stdout = logFile
 	runCmd.Stderr = logFile
 	if err := runCmd.Run(); err != nil {
