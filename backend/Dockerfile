@@ -44,9 +44,8 @@ RUN curl -fsSL https://packages.microsoft.com/config/ubuntu/22.04/packages-micro
     && apt-get install -y --no-install-recommends dotnet-sdk-8.0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY perf_agent /runner/perf_agent
-RUN python3 -m pip install --no-cache-dir rich requests
-ENV PYTHONPATH=/runner
+COPY scripts/perf_recommend.py /runner/perf_recommend.py
+RUN python3 -m pip install --no-cache-dir requests
 
 RUN git clone --depth 1 --branch ${KERNEL_REF} https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git /tmp/linux \
     && make -C /tmp/linux/tools/perf NO_JEVENTS=1 \

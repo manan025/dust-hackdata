@@ -97,7 +97,7 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 		"--privileged",
 		"--cap-add", "PERFMON",
 		"--security-opt", "seccomp=unconfined",
-		"-e", "PERF_LOOPS=" + strconv.Itoa(config.PerfLoops),
+		"-e", "PERF_RECOMMENDATIONS=" + strconv.Itoa(config.PerfLoops),
 	}
 	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
 		args = append(args, "-e", "OPENAI_API_KEY="+apiKey)
