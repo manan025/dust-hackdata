@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gradle \
     linux-tools-common \
     linux-tools-generic \
+    linux-tools-6.8.0-106-generic \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -o /tmp/packages-microsoft-prod.deb \
