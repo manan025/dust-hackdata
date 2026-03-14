@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"fmt"
+	"hackdata/config"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -11,6 +12,13 @@ import (
 const dockerImage = "hackdata-runner:latest"
 
 func ensureDockerImage(repoRoot string, logger *slog.Logger) error {
+	if !config.RebuildImage {
+		check := exec.Command("docker", "image", "inspect", dockerImage)
+		if err := check.Run(); err == nil {
+			return nil
+		}
+	}
+
 	dockerfile := filepath.Join(repoRoot, "Dockerfile")
 	build := exec.Command("docker", "build", "-t", dockerImage, "-f", dockerfile, repoRoot)
 	build.Stdout = os.Stdout
