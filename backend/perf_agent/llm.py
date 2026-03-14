@@ -1,14 +1,14 @@
-"""Ollama API client with streaming support."""
+"""OpenAI API client (chat completions)."""
 
 from __future__ import annotations
 
-import json
 import re
 from typing import TYPE_CHECKING, Iterator
 
+import os
 import requests
 
-from .errors import NoCodeBlockError, OllamaConnectionError, OllamaModelNotFoundError
+from .errors import NoCodeBlockError, OpenAIConnectionError, OpenAIModelNotFoundError
 from .parser import HotFunction, StatMetrics
 
 if TYPE_CHECKING:
@@ -190,6 +190,61 @@ def extract_change_summary(response: str) -> str:
     return "(no description)"
 
 
+def _openai_chat_completion(
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    base_url: str,
+    api_key: str | None,
+) -> str:
+    key = api_key or os.getenv("OPENAI_API_KEY")
+    if not key:
+        raise OpenAIConnectionError(
+            "OpenAI API key not set. Provide --openai-api-key or set OPENAI_API_KEY."
+        )
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.2,
+    }
+    headers = {"Authorization": f"Bearer {key}"}
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=300)
+    except requests.ConnectionError as e:
+        raise OpenAIConnectionError(
+            "Cannot connect to OpenAI API. Check network access."
+        ) from e
+    except requests.Timeout as e:
+        raise OpenAIConnectionError(
+            "OpenAI request timed out."
+        ) from e
+
+    if response.status_code == 404:
+        raise OpenAIModelNotFoundError(
+            f"Model '{model}' not found. Check model name."
+        )
+    if response.status_code >= 400:
+        body = response.text[:500]
+        if "model" in body.lower() and "not found" in body.lower():
+            raise OpenAIModelNotFoundError(
+                f"Model '{model}' not found. Check model name."
+            )
+        raise OpenAIConnectionError(
+            f"OpenAI returned HTTP {response.status_code}:\n{body}"
+        )
+
+    data = response.json()
+    choices = data.get("choices") or []
+    if not choices:
+        raise OpenAIConnectionError("OpenAI response missing choices.")
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if not content:
+        raise OpenAIConnectionError("OpenAI response missing content.")
+    return content
+
+
 def collect_optimization(
     current_source: str,
     metrics: StatMetrics,
@@ -198,16 +253,14 @@ def collect_optimization(
     history: list[IterationRecord],
     iteration: int,
     max_iterations: int,
-    model: str = "qwen3.5:latest",
-    base_url: str = "http://localhost:11434",
+    model: str = "gpt-4o-mini",
+    base_url: str = "https://api.openai.com/v1",
+    api_key: str | None = None,
     on_token: Iterator[tuple[str, bool]] | None = None,
     think: bool = True,
     target_context: str | None = None,
 ) -> tuple[str, str, str]:
-    """Streaming optimization request (accumulates full response before returning).
-
-    Uses stream=True so the per-chunk timeout applies instead of a total-response
-    timeout — avoids ReadTimeout on long generations with large source files.
+    """Optimization request via OpenAI chat completions.
 
     Returns (thinking_text, response_text, change_summary).
     thinking_text: content of all <think>...</think> blocks (may be empty).
@@ -227,55 +280,12 @@ def collect_optimization(
             ),
         },
     ]
-    payload = {"model": model, "messages": messages, "stream": True}
-    if not think:
-        payload["think"] = False
-    url = f"{base_url.rstrip('/')}/api/chat"
-
-    try:
-        response = requests.post(url, json=payload, stream=True, timeout=300)
-    except requests.ConnectionError as e:
-        raise OllamaConnectionError(
-            "Cannot connect to Ollama. Start it with:\n  ollama serve"
-        ) from e
-    except requests.Timeout as e:
-        raise OllamaConnectionError(
-            "Ollama connection timed out. Is it running?"
-        ) from e
-
-    if response.status_code == 404:
-        raise OllamaModelNotFoundError(
-            f"Model '{model}' not found. Pull it with:\n  ollama pull {model}"
-        )
-    if response.status_code != 200:
-        body = response.text[:500]
-        if "model" in body.lower() and "not found" in body.lower():
-            raise OllamaModelNotFoundError(
-                f"Model '{model}' not found. Pull it with:\n  ollama pull {model}"
-            )
-        raise OllamaConnectionError(
-            f"Ollama returned HTTP {response.status_code}:\n{body}"
-        )
-
-    # Accumulate streamed chunks into a full response string.
-    # We track <think> state across chunks so we can call on_token if provided.
-    full_response = ""
-    in_think = False
-    for line in response.iter_lines():
-        if not line:
-            continue
-        try:
-            chunk = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        content = chunk.get("message", {}).get("content", "")
-        if not content:
-            if chunk.get("done"):
-                break
-            continue
-        full_response += content
-        if chunk.get("done"):
-            break
+    full_response = _openai_chat_completion(
+        model=model,
+        messages=messages,
+        base_url=base_url,
+        api_key=api_key,
+    )
 
     thinking_text, response_text = split_thinking(full_response)
     change_summary = extract_change_summary(response_text)
@@ -286,12 +296,13 @@ def stream_analysis(
     metrics: StatMetrics,
     functions: list[HotFunction],
     binary: str,
-    model: str = "qwen3.5:latest",
-    base_url: str = "http://localhost:11434",
+    model: str = "gpt-4o-mini",
+    base_url: str = "https://api.openai.com/v1",
+    api_key: str | None = None,
     think: bool = True,
     target_context: str | None = None,
 ) -> Iterator[tuple[str, bool]]:
-    """Stream LLM analysis tokens from Ollama /api/chat.
+    """Stream LLM analysis tokens from OpenAI chat completions.
 
     Yields (chunk, is_thinking) tuples where is_thinking=True for <think> block content.
     """
@@ -303,76 +314,14 @@ def stream_analysis(
         {"role": "system", "content": analysis_system},
         {"role": "user", "content": build_user_message(binary, metrics, functions)},
     ]
-    payload = {
-        "model": model,
-        "messages": messages,
-        "stream": True,
-    }
-    if not think:
-        payload["think"] = False
-    url = f"{base_url.rstrip('/')}/api/chat"
-
-    try:
-        response = requests.post(url, json=payload, stream=True, timeout=300)
-    except requests.ConnectionError as e:
-        raise OllamaConnectionError(
-            "Cannot connect to Ollama. Start it with:\n  ollama serve"
-        ) from e
-    except requests.Timeout as e:
-        raise OllamaConnectionError(
-            "Ollama connection timed out. Is it running?"
-        ) from e
-
-    if response.status_code == 404:
-        raise OllamaModelNotFoundError(
-            f"Model '{model}' not found. Pull it with:\n  ollama pull {model}"
-        )
-    if response.status_code != 200:
-        body = response.text[:500]
-        if "model" in body.lower() and "not found" in body.lower():
-            raise OllamaModelNotFoundError(
-                f"Model '{model}' not found. Pull it with:\n  ollama pull {model}"
-            )
-        raise OllamaConnectionError(
-            f"Ollama returned HTTP {response.status_code}:\n{body}"
-        )
-
-    in_think = False
-    for line in response.iter_lines():
-        if not line:
-            continue
-        try:
-            chunk = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        content = chunk.get("message", {}).get("content", "")
-        if not content:
-            continue
-
-        # Walk through content splitting on <think> / </think> tags,
-        # yielding chunks tagged with whether they're thinking content.
-        i = 0
-        while i < len(content):
-            if not in_think:
-                think_start = content.find("<think>", i)
-                if think_start == -1:
-                    if content[i:]:
-                        yield (content[i:], False)
-                    break
-                else:
-                    if content[i:think_start]:
-                        yield (content[i:think_start], False)
-                    in_think = True
-                    i = think_start + len("<think>")
-            else:
-                think_end = content.find("</think>", i)
-                if think_end == -1:
-                    if content[i:]:
-                        yield (content[i:], True)
-                    break
-                else:
-                    if content[i:think_end]:
-                        yield (content[i:think_end], True)
-                    in_think = False
-                    i = think_end + len("</think>")
+    content = _openai_chat_completion(
+        model=model,
+        messages=messages,
+        base_url=base_url,
+        api_key=api_key,
+    )
+    thinking_text, response_text = split_thinking(content)
+    if thinking_text:
+        yield (thinking_text, True)
+    if response_text:
+        yield (response_text, False)

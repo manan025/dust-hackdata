@@ -16,8 +16,8 @@ from .errors import (
     DockerContainerError,
     DockerImageBuildError,
     DockerNotFoundError,
-    OllamaConnectionError,
-    OllamaModelNotFoundError,
+    OpenAIConnectionError,
+    OpenAIModelNotFoundError,
     PerfNotFoundError,
     PerfPermissionError,
     PerfTimeoutError,
@@ -111,13 +111,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--model",
-        default="qwen3.5:latest",
-        help="Ollama model to use (default: qwen3.5:latest)",
+        default="gpt-4o-mini",
+        help="OpenAI model to use (default: gpt-4o-mini)",
     )
     p.add_argument(
-        "--ollama-url",
-        default="http://localhost:11434",
-        help="Ollama base URL (default: http://localhost:11434)",
+        "--openai-url",
+        default="https://api.openai.com/v1",
+        help="OpenAI base URL (default: https://api.openai.com/v1)",
+    )
+    p.add_argument(
+        "--openai-api-key",
+        default=None,
+        help="OpenAI API key (default: use OPENAI_API_KEY env var)",
     )
     p.add_argument(
         "--timeout",
@@ -238,10 +243,10 @@ def main() -> None:
     except PerfTimeoutError as e:
         display.show_error(str(e))
         sys.exit(4)
-    except OllamaConnectionError as e:
+    except OpenAIConnectionError as e:
         display.show_error(str(e))
         sys.exit(5)
-    except OllamaModelNotFoundError as e:
+    except OpenAIModelNotFoundError as e:
         display.show_error(str(e))
         sys.exit(6)
     except DockerNotFoundError as e:
@@ -363,7 +368,8 @@ def _run_local_path(
                     functions=functions,
                     binary=str(binary) if binary else " ".join(command_args or []),
                     model=ns.model,
-                    base_url=ns.ollama_url,
+                    base_url=ns.openai_url,
+                    api_key=ns.openai_api_key,
                     think=not ns.no_think,
                 )
                 display.stream_llm_panel(chunks)
@@ -378,7 +384,8 @@ def _run_local_path(
                     functions=functions,
                     binary=display_target,
                     model=ns.model,
-                    base_url=ns.ollama_url,
+                    base_url=ns.openai_url,
+                    api_key=ns.openai_api_key,
                     think=not ns.no_think,
                 )
                 display.stream_llm_panel(chunks)
@@ -417,7 +424,8 @@ def _run_local_path(
                 max_iterations=ns.loops,
                 timeout=ns.timeout,
                 model=ns.model,
-                ollama_url=ns.ollama_url,
+                openai_url=ns.openai_url,
+                openai_api_key=ns.openai_api_key,
                 think=not ns.no_think,
                 output_dir=output_dir,
                 initial_metrics=metrics,
@@ -452,7 +460,8 @@ def _run_local_path(
                 functions=functions,
                 binary=display_target,
                 model=ns.model,
-                base_url=ns.ollama_url,
+                base_url=ns.openai_url,
+                api_key=ns.openai_api_key,
                 think=not ns.no_think,
             )
             display.stream_llm_panel(chunks)
@@ -560,7 +569,8 @@ def _run_docker_path(p: argparse.ArgumentParser, ns: argparse.Namespace, binary_
                     max_iterations=ns.loops,
                     timeout=ns.timeout,
                     model=ns.model,
-                    ollama_url=ns.ollama_url,
+                    openai_url=ns.openai_url,
+                    openai_api_key=ns.openai_api_key,
                     think=not ns.no_think,
                     output_dir=output_dir,
                     initial_metrics=metrics,
@@ -599,10 +609,11 @@ def _run_docker_path(p: argparse.ArgumentParser, ns: argparse.Namespace, binary_
                     functions=functions,
                     binary=binary_display,
                     model=ns.model,
-                    base_url=ns.ollama_url,
-                    think=not ns.no_think,
-                    target_context=target_spec.llm_context,
-                )
+                base_url=ns.openai_url,
+                api_key=ns.openai_api_key,
+                think=not ns.no_think,
+                target_context=target_spec.llm_context,
+            )
                 display.stream_llm_panel(chunks)
 
     finally:

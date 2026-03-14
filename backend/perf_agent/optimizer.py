@@ -129,7 +129,8 @@ class OptimizeConfig:
     max_iterations: int
     timeout: int
     model: str
-    ollama_url: str
+    openai_url: str
+    openai_api_key: str | None
     # Callbacks — display logic stays in cli.py
     on_iteration_start: Callable[[int, int], None]
     on_llm_start: Callable[[int, int], AbstractContextManager]    # spinner context manager
@@ -273,7 +274,8 @@ def run_optimize_loop(config: OptimizeConfig) -> tuple[list[IterationRecord], Pa
                     iteration=iteration,
                     max_iterations=config.max_iterations,
                     model=config.model,
-                    base_url=config.ollama_url,
+                    base_url=config.openai_url,
+                    api_key=config.openai_api_key,
                     think=config.think,
                     target_context=config.target_context,
                 )

@@ -90,20 +90,26 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	defer logFile.Close()
 
-	runCmd := exec.Command(
-		"docker",
+	args := []string{
 		"run",
 		"--rm",
 		"--privileged",
 		"--cap-add", "PERFMON",
 		"--security-opt", "seccomp=unconfined",
-		"-e", "PERF_LOOPS="+strconv.Itoa(config.PerfLoops),
+		"-e", "PERF_LOOPS=" + strconv.Itoa(config.PerfLoops),
+	}
+	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		args = append(args, "-e", "OPENAI_API_KEY="+apiKey)
+	}
+	args = append(
+		args,
 		"-v", fmt.Sprintf("%s:/work", repoDir),
 		"-v", fmt.Sprintf("%s:/out", artifactsDir),
 		dockerImage,
 		"/runner/run_in_container.sh",
 		"/work",
 	)
+	runCmd := exec.Command("docker", args...)
 	runCmd.Stdout = logFile
 	runCmd.Stderr = logFile
 	if err := runCmd.Run(); err != nil {

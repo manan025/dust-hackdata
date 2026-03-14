@@ -29,12 +29,12 @@ class PerfNoSymbolsWarning(UserWarning):
     """Warning emitted when the binary has no debug symbols."""
 
 
-class OllamaConnectionError(PerfAgentError):
-    """Raised when the Ollama server is not reachable."""
+class OpenAIConnectionError(PerfAgentError):
+    """Raised when the OpenAI API is not reachable."""
 
 
-class OllamaModelNotFoundError(PerfAgentError):
-    """Raised when the requested model is not available in Ollama."""
+class OpenAIModelNotFoundError(PerfAgentError):
+    """Raised when the requested model is not available in OpenAI."""
 
 
 class CompileError(PerfAgentError):
