@@ -82,6 +82,7 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logPath := filepath.Join(artifactsDir, "pipeline.log")
+	c.logger.Info("pipeline log path", "path", logPath)
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		c.logger.Error("failed to create log file", "error", err)

@@ -177,6 +177,11 @@ python3 -m perf_agent.cli \
   --loops "$PERF_LOOPS" \
   --out-dir "$OUTDIR"
 
+if [ -f "$OUTDIR/llm_output.txt" ]; then
+  echo "=== LLM OUTPUT ==="
+  cat "$OUTDIR/llm_output.txt"
+fi
+
 cat > "$OUTDIR/metadata.json" <<EOF
 {"language":"$main_lang","test_cmd":"$test_cmd","run_cmd":"$run_cmd","perf_loops":$PERF_LOOPS}
 EOF
