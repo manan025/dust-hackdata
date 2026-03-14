@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: perf-agent
+Version: 0.1.0
+Summary: AI-powered Linux perf profiler CLI
+Requires-Python: >=3.11
+Requires-Dist: rich>=13.0
+Requires-Dist: requests>=2.28

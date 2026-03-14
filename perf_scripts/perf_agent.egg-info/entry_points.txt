@@ -1,0 +1,2 @@
+[console_scripts]
+perf-agent = perf_agent.cli:main
