@@ -220,7 +220,8 @@ python3 /runner/perf_recommend.py \
   --recommendations "$PERF_RECOMMENDATIONS" \
   --model "$OPENAI_MODEL" \
   --openai-url "$OPENAI_BASE_URL" \
-  --out-dir "$OUTDIR"
+  --out-dir "$OUTDIR" \
+  --repo-root "/work"
 
 cat > "$OUTDIR/metadata.json" <<EOF
 {"language":"$main_lang","test_cmd":"$test_cmd","run_cmd":"$run_cmd","profile_cmd":"$profile_cmd","perf_recommendations":$PERF_RECOMMENDATIONS}
