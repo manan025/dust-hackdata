@@ -87,6 +87,22 @@ def _auto_detect_c_source(root: Path) -> Path | None:
     return candidates[0]
 
 
+def _append_llm_output(path: Path | None, header: str, text: str) -> None:
+    if path is None:
+        return
+    if not text:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        if header:
+            f.write(header)
+            if not header.endswith("\n"):
+                f.write("\n")
+        f.write(text)
+        if not text.endswith("\n"):
+            f.write("\n")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="perf-agent",
@@ -302,6 +318,8 @@ def _run_local_path(
         display_target = str(binary) if binary else " ".join(command_args or [])
         display.show_banner(display_target)
 
+        llm_output_path = ns.out_dir / "llm_output.txt" if ns.out_dir else None
+
         # 3. perf stat
         with display.spinner("Running perf stat..."):
             if command_args:
@@ -363,7 +381,7 @@ def _run_local_path(
                     "[yellow]No C source found for optimization; running analysis only.[/]"
                 )
                 ns.loops = 0
-                chunks = llm.stream_analysis(
+                chunks = list(llm.stream_analysis(
                     metrics=metrics,
                     functions=functions,
                     binary=str(binary) if binary else " ".join(command_args or []),
@@ -371,15 +389,17 @@ def _run_local_path(
                     base_url=ns.openai_url,
                     api_key=ns.openai_api_key,
                     think=not ns.no_think,
-                )
-                display.stream_llm_panel(chunks)
+                ))
+                analysis_text = "".join(chunk for chunk, is_thinking in chunks if not is_thinking)
+                _append_llm_output(llm_output_path, "ANALYSIS:", analysis_text)
+                display.stream_llm_panel(iter(chunks))
                 return
             if binary_for_opt is None:
                 display.CONSOLE.print(
                     "[yellow]Optimization requires an ELF binary command; running analysis only.[/]"
                 )
                 ns.loops = 0
-                chunks = llm.stream_analysis(
+                chunks = list(llm.stream_analysis(
                     metrics=metrics,
                     functions=functions,
                     binary=display_target,
@@ -387,8 +407,10 @@ def _run_local_path(
                     base_url=ns.openai_url,
                     api_key=ns.openai_api_key,
                     think=not ns.no_think,
-                )
-                display.stream_llm_panel(chunks)
+                ))
+                analysis_text = "".join(chunk for chunk, is_thinking in chunks if not is_thinking)
+                _append_llm_output(llm_output_path, "ANALYSIS:", analysis_text)
+                display.stream_llm_panel(iter(chunks))
                 return
             if not ns.source.exists():
                 display.show_error(f"Source file not found: {ns.source}")
@@ -415,6 +437,15 @@ def _run_local_path(
                 )
             )
 
+            def _on_llm_response(thinking: str, response: str, iteration: int):
+                _append_llm_output(
+                    llm_output_path,
+                    f"ITERATION {iteration}:",
+                    response,
+                )
+                display.show_llm_thinking(thinking, iteration)
+                display.show_llm_optimization_response(response, iteration)
+
             config = optimizer.OptimizeConfig(
                 source=ns.source,
                 binary=binary_for_opt,
@@ -437,10 +468,7 @@ def _run_local_path(
                 on_compile_result=display.show_compile_result,
                 on_profile_start=display.spinner,
                 on_profile_done=display.show_metrics_table,
-                on_llm_response=lambda thinking, response, n: (
-                    display.show_llm_thinking(thinking, n),
-                    display.show_llm_optimization_response(response, n),
-                ),
+                on_llm_response=_on_llm_response,
                 on_iteration_done=display.show_iteration_result,
                 on_source_written=display.show_source_diff,
                 on_user_approval=(
@@ -455,7 +483,7 @@ def _run_local_path(
 
         else:
             # --- Analysis-only path ---
-            chunks = llm.stream_analysis(
+            chunks = list(llm.stream_analysis(
                 metrics=metrics,
                 functions=functions,
                 binary=display_target,
@@ -463,8 +491,10 @@ def _run_local_path(
                 base_url=ns.openai_url,
                 api_key=ns.openai_api_key,
                 think=not ns.no_think,
-            )
-            display.stream_llm_panel(chunks)
+            ))
+            analysis_text = "".join(chunk for chunk, is_thinking in chunks if not is_thinking)
+            _append_llm_output(llm_output_path, "ANALYSIS:", analysis_text)
+            display.stream_llm_panel(iter(chunks))
 
     finally:
         if tmpdir is not None:

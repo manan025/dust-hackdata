@@ -118,13 +118,20 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logTail, err := readFileTail(logPath, 20000)
-	if err != nil {
-		c.logger.Error("failed to read pipeline log", "error", err)
+	llmPath := filepath.Join(artifactsDir, "llm_output.txt")
+	llmTail, err := readFileTail(llmPath, 20000)
+	if err != nil && !os.IsNotExist(err) {
+		c.logger.Error("failed to read llm output", "error", err)
+	}
+	if llmTail == "" {
+		llmTail, err = readFileTail(logPath, 20000)
+		if err != nil {
+			c.logger.Error("failed to read pipeline log", "error", err)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"output": logTail,
+		"output": llmTail,
 	})
 }
 
