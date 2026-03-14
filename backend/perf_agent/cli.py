@@ -87,7 +87,9 @@ def _write_llm_output(out_dir: Path | None, analysis_text: str, thinking_text: s
     if out_dir is None:
         return
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "llm_output.txt").write_text(analysis_text, encoding="utf-8")
+    # Some models may emit only thinking tokens; keep llm_output.txt non-empty when possible.
+    output_text = analysis_text if analysis_text.strip() else thinking_text
+    (out_dir / "llm_output.txt").write_text(output_text, encoding="utf-8")
     if thinking_text:
         (out_dir / "llm_thinking.txt").write_text(thinking_text, encoding="utf-8")
 

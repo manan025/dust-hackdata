@@ -121,6 +121,14 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		c.logger.Error("failed to read llm output", "error", err)
 	}
+	if strings.TrimSpace(llmOutput) == "" {
+		llmThinking, err := readOptionalFileTail(filepath.Join(artifactsDir, "llm_thinking.txt"), 200000)
+		if err != nil {
+			c.logger.Error("failed to read llm thinking output", "error", err)
+		} else {
+			llmOutput = llmThinking
+		}
+	}
 
 	perfOutput, err := readOptionalFileTail(filepath.Join(artifactsDir, "perf.txt"), 200000)
 	if err != nil {
