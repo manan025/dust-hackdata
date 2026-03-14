@@ -1,0 +1,14 @@
+pyproject.toml
+perf_agent/__init__.py
+perf_agent/cli.py
+perf_agent/display.py
+perf_agent/errors.py
+perf_agent/llm.py
+perf_agent/parser.py
+perf_agent/runner.py
+perf_agent.egg-info/PKG-INFO
+perf_agent.egg-info/SOURCES.txt
+perf_agent.egg-info/dependency_links.txt
+perf_agent.egg-info/entry_points.txt
+perf_agent.egg-info/requires.txt
+perf_agent.egg-info/top_level.txt
