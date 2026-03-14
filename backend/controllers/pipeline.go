@@ -117,13 +117,35 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 		c.logger.Error("failed to read pipeline log", "error", err)
 	}
 
+	llmOutput, err := readOptionalFileTail(filepath.Join(artifactsDir, "llm_output.txt"), 200000)
+	if err != nil {
+		c.logger.Error("failed to read llm output", "error", err)
+	}
+
+	perfOutput, err := readOptionalFileTail(filepath.Join(artifactsDir, "perf.txt"), 200000)
+	if err != nil {
+		c.logger.Error("failed to read perf output", "error", err)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{
 		"workdir":           workdir,
 		"repodir":           repoDir,
 		"artifacts":         artifactsDir,
 		"log_output":        logPath,
 		"perf_agent_output": logTail,
+		"perf_output":       perfOutput,
+		"llm_output":        llmOutput,
 	})
+}
+
+func readOptionalFileTail(path string, maxBytes int64) (string, error) {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return readFileTail(path, maxBytes)
 }
 
 func readFileTail(path string, maxBytes int64) (string, error) {

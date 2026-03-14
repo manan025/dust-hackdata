@@ -66,25 +66,30 @@ _SKIP_DIRS = {
 _MAIN_RE = re.compile(r"\bmain\s*\(")
 
 
-def _auto_detect_c_source(root: Path) -> Path | None:
-    candidates: list[Path] = []
-    for path in root.rglob("*.c"):
-        if any(part in _SKIP_DIRS or part.startswith(".") for part in path.parts):
-            continue
-        candidates.append(path)
-    if not candidates:
-        return None
-    for path in candidates:
-        if path.name == "main.c":
-            return path
-    for path in candidates:
-        try:
-            if _MAIN_RE.search(path.read_text(encoding="utf-8", errors="ignore")):
-                return path
-        except OSError:
-            continue
-    candidates.sort(key=lambda p: p.stat().st_size if p.exists() else 0, reverse=True)
-    return candidates[0]
+def _stream_and_capture_analysis(chunks: "Iterator[tuple[str, bool]]") -> tuple[str, str]:
+    """Stream chunks to Rich UI while collecting plain-text thinking/analysis."""
+    thinking_parts: list[str] = []
+    analysis_parts: list[str] = []
+
+    def _forward() -> "Iterator[tuple[str, bool]]":
+        for chunk, is_thinking in chunks:
+            if is_thinking:
+                thinking_parts.append(chunk)
+            else:
+                analysis_parts.append(chunk)
+            yield (chunk, is_thinking)
+
+    display.stream_llm_panel(_forward())
+    return "".join(thinking_parts), "".join(analysis_parts)
+
+
+def _write_llm_output(out_dir: Path | None, analysis_text: str, thinking_text: str = "") -> None:
+    if out_dir is None:
+        return
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "llm_output.txt").write_text(analysis_text, encoding="utf-8")
+    if thinking_text:
+        (out_dir / "llm_thinking.txt").write_text(thinking_text, encoding="utf-8")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -366,7 +371,8 @@ def _run_local_path(
                     base_url=ns.ollama_url,
                     think=not ns.no_think,
                 )
-                display.stream_llm_panel(chunks)
+                thinking_text, analysis_text = _stream_and_capture_analysis(chunks)
+                _write_llm_output(ns.out_dir, analysis_text=analysis_text, thinking_text=thinking_text)
                 return
             if binary_for_opt is None:
                 display.CONSOLE.print(
@@ -381,7 +387,8 @@ def _run_local_path(
                     base_url=ns.ollama_url,
                     think=not ns.no_think,
                 )
-                display.stream_llm_panel(chunks)
+                thinking_text, analysis_text = _stream_and_capture_analysis(chunks)
+                _write_llm_output(ns.out_dir, analysis_text=analysis_text, thinking_text=thinking_text)
                 return
             if not ns.source.exists():
                 display.show_error(f"Source file not found: {ns.source}")
@@ -408,6 +415,18 @@ def _run_local_path(
                 )
             )
 
+            llm_iterations: list[str] = []
+
+            def _on_llm_response(thinking: str, response: str, iteration: int) -> None:
+                display.show_llm_thinking(thinking, iteration)
+                display.show_llm_optimization_response(response, iteration)
+                sections = [f"Iteration {iteration}"]
+                if thinking:
+                    sections.append("[thinking]\n" + thinking.strip())
+                if response:
+                    sections.append("[analysis]\n" + response.strip())
+                llm_iterations.append("\n\n".join(sections).strip())
+
             config = optimizer.OptimizeConfig(
                 source=ns.source,
                 binary=binary_for_opt,
@@ -429,10 +448,7 @@ def _run_local_path(
                 on_compile_result=display.show_compile_result,
                 on_profile_start=display.spinner,
                 on_profile_done=display.show_metrics_table,
-                on_llm_response=lambda thinking, response, n: (
-                    display.show_llm_thinking(thinking, n),
-                    display.show_llm_optimization_response(response, n),
-                ),
+                on_llm_response=_on_llm_response,
                 on_iteration_done=display.show_iteration_result,
                 on_source_written=display.show_source_diff,
                 on_user_approval=(
@@ -444,6 +460,7 @@ def _run_local_path(
 
             history, output_path = optimizer.run_optimize_loop(config)
             display.show_optimization_summary(history, output_path)
+            _write_llm_output(ns.out_dir, analysis_text="\n\n\n".join(llm_iterations))
 
         else:
             # --- Analysis-only path ---
@@ -455,7 +472,8 @@ def _run_local_path(
                 base_url=ns.ollama_url,
                 think=not ns.no_think,
             )
-            display.stream_llm_panel(chunks)
+            thinking_text, analysis_text = _stream_and_capture_analysis(chunks)
+            _write_llm_output(ns.out_dir, analysis_text=analysis_text, thinking_text=thinking_text)
 
     finally:
         if tmpdir is not None:
@@ -551,6 +569,18 @@ def _run_docker_path(p: argparse.ArgumentParser, ns: argparse.Namespace, binary_
                         backend, binary, args, timeout, perf_data
                     )
 
+                llm_iterations: list[str] = []
+
+                def _on_llm_response(thinking: str, response: str, iteration: int) -> None:
+                    display.show_llm_thinking(thinking, iteration)
+                    display.show_llm_optimization_response(response, iteration)
+                    sections = [f"Iteration {iteration}"]
+                    if thinking:
+                        sections.append("[thinking]\n" + thinking.strip())
+                    if response:
+                        sections.append("[analysis]\n" + response.strip())
+                    llm_iterations.append("\n\n".join(sections).strip())
+
                 config = optimizer.OptimizeConfig(
                     source=src_in_work,
                     binary=binary_in_work,
@@ -576,10 +606,7 @@ def _run_docker_path(p: argparse.ArgumentParser, ns: argparse.Namespace, binary_
                     on_compile_result=display.show_compile_result,
                     on_profile_start=display.spinner,
                     on_profile_done=display.show_metrics_table,
-                    on_llm_response=lambda thinking, response, n: (
-                        display.show_llm_thinking(thinking, n),
-                        display.show_llm_optimization_response(response, n),
-                    ),
+                    on_llm_response=_on_llm_response,
                     on_iteration_done=display.show_iteration_result,
                     on_source_written=display.show_source_diff,
                     on_user_approval=(
@@ -591,6 +618,7 @@ def _run_docker_path(p: argparse.ArgumentParser, ns: argparse.Namespace, binary_
 
                 history, output_path = optimizer.run_optimize_loop(config)
                 display.show_optimization_summary(history, output_path)
+                _write_llm_output(ns.out_dir, analysis_text="\n\n\n".join(llm_iterations))
 
             else:
                 # --- Docker analysis-only path ---
@@ -603,7 +631,8 @@ def _run_docker_path(p: argparse.ArgumentParser, ns: argparse.Namespace, binary_
                     think=not ns.no_think,
                     target_context=target_spec.llm_context,
                 )
-                display.stream_llm_panel(chunks)
+                thinking_text, analysis_text = _stream_and_capture_analysis(chunks)
+                _write_llm_output(ns.out_dir, analysis_text=analysis_text, thinking_text=thinking_text)
 
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
