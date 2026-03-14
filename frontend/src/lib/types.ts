@@ -16,9 +16,9 @@ export type Project = {
   sourceType: SourceType;
   githubUrl?: string;
   sourceFileName?: string;
+  sourceFileUrl?: string;
   binaryFileName: string;
   architectures: Architecture[];
-  framework: string;
   profilingRuns: number;
   trend: number[];
   metrics: ProfilingMetric[];
@@ -26,11 +26,10 @@ export type Project = {
 
 export type NewProjectPayload = {
   name: string;
-  framework: string;
   sourceType: SourceType;
   githubUrl?: string;
   sourceFileName?: string;
+  sourceFileUrl?: string;
   binaryFileName: string;
   architectures: Architecture[];
 };
-

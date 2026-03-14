@@ -20,7 +20,13 @@
   <td class="px-4 py-4 font-medium text-primary">
     <a href={`/projects/${project.id}`} class="hover:underline">{project.name}</a>
   </td>
-  <td class="px-4 py-4 text-muted-foreground">{project.framework}</td>
+  <td class="px-4 py-4 text-muted-foreground">
+    {#if project.sourceType === 'github'}
+      GitHub
+    {:else}
+      Uploaded file{project.sourceFileName ? `: ${project.sourceFileName}` : ''}
+    {/if}
+  </td>
   <td class="px-4 py-4">
     <Badge>{project.profilingRuns} runs</Badge>
   </td>

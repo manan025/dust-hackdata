@@ -26,7 +26,7 @@
       <thead>
         <tr class="border-b border-border text-left text-muted-foreground">
           <th class="px-4 py-3 text-xs font-medium">Project</th>
-          <th class="px-4 py-3 text-xs font-medium">Framework</th>
+          <th class="px-4 py-3 text-xs font-medium">Source</th>
           <th class="px-4 py-3 text-xs font-medium">Profilings</th>
           <th class="px-4 py-3 text-xs font-medium">Actions</th>
         </tr>
