@@ -33,10 +33,10 @@ function createProjectStore() {
         const created: Project = {
           id: crypto.randomUUID(),
           name: payload.name,
-          framework: payload.framework,
           sourceType: payload.sourceType,
           githubUrl: payload.githubUrl,
           sourceFileName: payload.sourceFileName,
+          sourceFileUrl: payload.sourceFileUrl,
           binaryFileName: payload.binaryFileName,
           architectures: payload.architectures,
           profilingRuns: 0,
@@ -77,4 +77,3 @@ function createProjectStore() {
 }
 
 export const projectStore = createProjectStore();
-

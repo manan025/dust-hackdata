@@ -30,10 +30,19 @@
       <p class="text-sm text-muted-foreground">Detailed profiling and metrics dashboard.</p>
     </div>
     <div class="flex items-center gap-2">
-      <Badge>{activeProject.framework}</Badge>
+      <Badge>{activeProject.sourceType === 'github' ? 'GitHub' : 'Uploaded source'}</Badge>
       <Badge>{activeProject.profilingRuns} runs</Badge>
     </div>
   </div>
+
+  {#if activeProject.sourceFileUrl}
+    <Card class="p-4">
+      <div class="text-sm text-muted-foreground">Uploaded source</div>
+      <a href={activeProject.sourceFileUrl} target="_blank" rel="noreferrer" class="text-sm text-primary hover:underline">
+        {activeProject.sourceFileName ?? 'Open uploaded source'}
+      </a>
+    </Card>
+  {/if}
 
   <ProfilingOverview project={activeProject} />
 
