@@ -69,12 +69,14 @@ PY
 )"
 
 test_cmd=""
+build_cmd=""
 run_cmd=""
 
 case "$main_lang" in
   go)
     test_cmd="go test ./..."
-    run_cmd="go run ."
+    build_cmd="mkdir -p /work/.perf_run && go build -o /work/.perf_run/app ./"
+    run_cmd="/work/.perf_run/app"
     ;;
   node)
     npm install
@@ -109,7 +111,8 @@ case "$main_lang" in
     ;;
   rust)
     test_cmd="cargo test"
-    run_cmd="cargo run --release"
+    build_cmd="cargo build --release"
+    run_cmd="__RUST_RELEASE_BIN__"
     ;;
   java)
     if [ -f mvnw ]; then
@@ -166,14 +169,53 @@ if [ -n "$test_cmd" ]; then
   bash -lc "$test_cmd"
 fi
 
+if [ -n "$build_cmd" ]; then
+  echo "Building binary: $build_cmd"
+  bash -lc "$build_cmd"
+fi
+
+if [ "$run_cmd" = "__RUST_RELEASE_BIN__" ]; then
+  run_cmd="$(python3 - <<'PY'
+import os
+import re
+
+name = None
+in_pkg = False
+try:
+    with open("Cargo.toml", "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("["):
+                in_pkg = line == "[package]"
+                continue
+            if in_pkg:
+                m = re.match(r'name\s*=\s*\"([^\"]+)\"', line)
+                if m:
+                    name = m.group(1)
+                    break
+except OSError:
+    pass
+
+if name:
+    path = os.path.join("target", "release", name)
+    if os.path.isfile(path) and os.access(path, os.X_OK):
+        print(path)
+PY
+)"
+  if [ -z "$run_cmd" ]; then
+    run_cmd="$(find target/release -maxdepth 1 -type f -perm -111 2>/dev/null | head -n 1)"
+  fi
+fi
+
 if [ -z "$run_cmd" ]; then
   echo "No runnable entrypoint found for $main_lang." >&2
   exit 2
 fi
 
-echo "Profiling command with perf-agent: $run_cmd"
+profile_cmd="timeout 30s $run_cmd"
+echo "Profiling command with perf-agent: $profile_cmd"
 python3 -m perf_agent.cli \
-  --command "$run_cmd" \
+  --command "$profile_cmd" \
   --loops "$PERF_LOOPS" \
   --out-dir "$OUTDIR"
 
@@ -183,5 +225,5 @@ if [ -f "$OUTDIR/llm_output.txt" ]; then
 fi
 
 cat > "$OUTDIR/metadata.json" <<EOF
-{"language":"$main_lang","test_cmd":"$test_cmd","run_cmd":"$run_cmd","perf_loops":$PERF_LOOPS}
+{"language":"$main_lang","test_cmd":"$test_cmd","run_cmd":"$run_cmd","profile_cmd":"$profile_cmd","perf_loops":$PERF_LOOPS}
 EOF
