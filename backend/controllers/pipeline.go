@@ -3,10 +3,13 @@ package controllers
 import (
 	"encoding/json"
 	"fmt"
+	"hackdata/config"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -94,6 +97,7 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 		"--privileged",
 		"--cap-add", "PERFMON",
 		"--security-opt", "seccomp=unconfined",
+		"-e", "PERF_LOOPS="+strconv.Itoa(config.PerfLoops),
 		"-v", fmt.Sprintf("%s:/work", repoDir),
 		"-v", fmt.Sprintf("%s:/out", artifactsDir),
 		dockerImage,
@@ -108,10 +112,48 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logTail, err := readFileTail(logPath, 20000)
+	if err != nil {
+		c.logger.Error("failed to read pipeline log", "error", err)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{
-		"workdir":    workdir,
-		"repodir":    repoDir,
-		"artifacts":  artifactsDir,
-		"log_output": logPath,
+		"workdir":           workdir,
+		"repodir":           repoDir,
+		"artifacts":         artifactsDir,
+		"log_output":        logPath,
+		"perf_agent_output": logTail,
 	})
+}
+
+func readFileTail(path string, maxBytes int64) (string, error) {
+	if maxBytes <= 0 {
+		return "", nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	size := info.Size()
+	if size == 0 {
+		return "", nil
+	}
+	if maxBytes > size {
+		maxBytes = size
+	}
+	if _, err := file.Seek(-maxBytes, io.SeekEnd); err != nil {
+		return "", err
+	}
+	buf := make([]byte, maxBytes)
+	n, err := io.ReadFull(file, buf)
+	if err != nil && err != io.ErrUnexpectedEOF {
+		return "", err
+	}
+	return string(buf[:n]), nil
 }

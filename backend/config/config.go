@@ -5,6 +5,7 @@ const (
 	DefaultPort     = 8080
 	DefaultLogLevel = "info"
 	DefaultRebuildImage = false
+	DefaultPerfLoops = 3
 )
 
 var (
@@ -12,4 +13,5 @@ var (
 	Port     = DefaultPort
 	LogLevel = DefaultLogLevel
 	RebuildImage = DefaultRebuildImage
+	PerfLoops = DefaultPerfLoops
 )

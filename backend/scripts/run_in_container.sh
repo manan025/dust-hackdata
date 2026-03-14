@@ -4,8 +4,10 @@ set -euo pipefail
 
 WORKDIR="${1:-/work}"
 OUTDIR="${OUTDIR:-/out}"
+PERF_LOOPS="${PERF_LOOPS:-3}"
 
 cd "$WORKDIR"
+export PYTHONPATH="/runner:${PYTHONPATH:-}"
 
 main_lang="$(python3 - <<'PY'
 import os
@@ -169,10 +171,12 @@ if [ -z "$run_cmd" ]; then
   exit 2
 fi
 
-echo "Profiling command: $run_cmd"
-perf record -F 99 -g -o "$OUTDIR/perf.data" -- bash -lc "$run_cmd"
-perf script -i "$OUTDIR/perf.data" > "$OUTDIR/perf.txt"
+echo "Profiling command with perf-agent: $run_cmd"
+python3 -m perf_agent.cli \
+  --command "$run_cmd" \
+  --loops "$PERF_LOOPS" \
+  --out-dir "$OUTDIR"
 
 cat > "$OUTDIR/metadata.json" <<EOF
-{"language":"$main_lang","test_cmd":"$test_cmd","run_cmd":"$run_cmd"}
+{"language":"$main_lang","test_cmd":"$test_cmd","run_cmd":"$run_cmd","perf_loops":$PERF_LOOPS}
 EOF
