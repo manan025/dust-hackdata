@@ -17,6 +17,7 @@ func Execute() {
 	fs.IntVar(&config.Port, "port", config.DefaultPort, "port to listen on")
 	fs.StringVar(&config.LogLevel, "log-level", config.DefaultLogLevel, "log level (debug, info, warn, error)")
 	fs.BoolVar(&config.RebuildImage, "rebuild-image", config.DefaultRebuildImage, "rebuild runner docker image on every pipeline run")
+	fs.IntVar(&config.PerfLoops, "perf-loops", config.DefaultPerfLoops, "perf-agent optimization loops per run")
 	fs.Parse(os.Args[1:])
 
 	level := parseLogLevel(config.LogLevel)
