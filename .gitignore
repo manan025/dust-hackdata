@@ -1,4 +1,5 @@
 .idea/
 node_modules/
 .svelte-kit/
-
+perf_scripts/test_prog.c
+perf_scripts/test_prog
