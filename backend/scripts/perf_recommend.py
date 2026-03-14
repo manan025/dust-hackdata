@@ -251,6 +251,10 @@ def supabase_upload(
     return object_name, signed_url
 
 
+def _write_upload_json(out_dir: Path, payload: dict) -> None:
+    (out_dir / "upload.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Profile a command with perf and apply OpenAI recommendations.")
     parser.add_argument("--command", required=True, help="Command to profile")
@@ -267,56 +271,73 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     repo_root = Path(args.repo_root).resolve()
 
-    stat_text = perf_stat(args.command, args.timeout)
-    report_text = perf_record_report(args.command, out_dir, args.timeout)
-    symbols = parse_hot_symbols(report_text)
-    selected_files = select_source_files(repo_root, symbols, max_files=3)
-    source_bundle = read_source_bundle(selected_files)
+    result: dict = {"changed_files": []}
+    response = ""
+    stat_text = ""
+    report_text = ""
 
-    api_key = args.openai_api_key or os.getenv("OPENAI_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("Missing OPENAI_API_KEY")
-
-    messages = build_prompt(
-        args.command,
-        stat_text,
-        report_text,
-        source_bundle,
-        args.recommendations,
-        selected_files,
-    )
-    response = call_openai(messages, args.model, args.openai_url, api_key)
-
-    llm_path = out_dir / "llm_output.txt"
-    llm_path.write_text(response, encoding="utf-8")
-
-    payload = {}
     try:
-        payload = json.loads(response)
-    except json.JSONDecodeError:
-        payload = {}
+        stat_text = perf_stat(args.command, args.timeout)
+        report_text = perf_record_report(args.command, out_dir, args.timeout)
+        symbols = parse_hot_symbols(report_text)
+        selected_files = select_source_files(repo_root, symbols, max_files=3)
+        source_bundle = read_source_bundle(selected_files)
 
-    changed = apply_changes(repo_root, payload)
+        api_key = args.openai_api_key or os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("Missing OPENAI_API_KEY")
+
+        messages = build_prompt(
+            args.command,
+            stat_text,
+            report_text,
+            source_bundle,
+            args.recommendations,
+            selected_files,
+        )
+        response = call_openai(messages, args.model, args.openai_url, api_key)
+
+        llm_path = out_dir / "llm_output.txt"
+        llm_path.write_text(response, encoding="utf-8")
+
+        payload = {}
+        try:
+            payload = json.loads(response)
+        except json.JSONDecodeError:
+            payload = {}
+
+        result["changed_files"] = apply_changes(repo_root, payload)
+    except Exception as exc:
+        result["error"] = str(exc)
 
     zip_path = out_dir / "source.zip"
-    zip_source(repo_root, zip_path)
+    try:
+        zip_source(repo_root, zip_path)
+    except Exception as exc:
+        result["zip_error"] = str(exc)
+        _write_upload_json(out_dir, result)
+        print(json.dumps(result))
+        return 1
 
     supabase_url = os.getenv("SUPABASE_URL", "")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     supabase_bucket = os.getenv("SUPABASE_SOURCE_BUCKET", "")
     if not supabase_url or not supabase_key or not supabase_bucket:
-        raise RuntimeError("Missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SOURCE_BUCKET")
+        result["upload_error"] = "Missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SOURCE_BUCKET"
+        _write_upload_json(out_dir, result)
+        print(json.dumps(result))
+        return 1
 
-    object_name, signed_url = supabase_upload(
-        supabase_url, supabase_key, supabase_bucket, zip_path
-    )
+    try:
+        object_name, signed_url = supabase_upload(
+            supabase_url, supabase_key, supabase_bucket, zip_path
+        )
+        result["zip_object"] = object_name
+        result["signed_url"] = signed_url
+    except Exception as exc:
+        result["upload_error"] = str(exc)
 
-    result = {
-        "changed_files": changed,
-        "zip_object": object_name,
-        "signed_url": signed_url,
-    }
-    (out_dir / "upload.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    _write_upload_json(out_dir, result)
     print(json.dumps(result))
     return 0
 
