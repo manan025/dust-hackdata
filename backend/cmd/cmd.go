@@ -9,9 +9,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+
+	"github.com/joho/godotenv"
 )
 
 func Execute() {
+	_ = godotenv.Load()
+
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	fs.StringVar(&config.Addr, "addr", config.DefaultAddr, "address to listen on")
 	fs.IntVar(&config.Port, "port", config.DefaultPort, "port to listen on")
