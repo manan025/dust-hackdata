@@ -212,7 +212,7 @@ if [ -z "$run_cmd" ]; then
   exit 2
 fi
 
-profile_cmd="timeout 30s $run_cmd"
+profile_cmd="$run_cmd"
 echo "Profiling command with perf-agent: $profile_cmd"
 python3 -m perf_agent.cli \
   --command "$profile_cmd" \
