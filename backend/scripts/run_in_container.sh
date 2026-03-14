@@ -7,10 +7,6 @@ OUTDIR="${OUTDIR:-/out}"
 
 cd "$WORKDIR"
 
-if [ -x /host-perf/perf ]; then
-  ln -sf /host-perf/perf /usr/bin/perf
-fi
-
 main_lang="$(python3 - <<'PY'
 import os
 from collections import Counter
