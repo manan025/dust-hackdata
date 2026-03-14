@@ -102,6 +102,15 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
 		args = append(args, "-e", "OPENAI_API_KEY="+apiKey)
 	}
+	if supabaseURL := os.Getenv("SUPABASE_URL"); supabaseURL != "" {
+		args = append(args, "-e", "SUPABASE_URL="+supabaseURL)
+	}
+	if supabaseKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY"); supabaseKey != "" {
+		args = append(args, "-e", "SUPABASE_SERVICE_ROLE_KEY="+supabaseKey)
+	}
+	if supabaseBucket := os.Getenv("SUPABASE_SOURCE_BUCKET"); supabaseBucket != "" {
+		args = append(args, "-e", "SUPABASE_SOURCE_BUCKET="+supabaseBucket)
+	}
 	args = append(
 		args,
 		"-v", fmt.Sprintf("%s:/work", repoDir),
@@ -124,6 +133,13 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 	if err != nil && !os.IsNotExist(err) {
 		c.logger.Error("failed to read llm output", "error", err)
 	}
+
+	uploadPath := filepath.Join(artifactsDir, "upload.json")
+	zipURL, err := readUploadURL(uploadPath)
+	if err != nil && !os.IsNotExist(err) {
+		c.logger.Error("failed to read upload output", "error", err)
+	}
+
 	if llmTail == "" {
 		llmTail, err = readFileTail(logPath, 20000)
 		if err != nil {
@@ -133,7 +149,22 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"output": llmTail,
+		"zip":    zipURL,
 	})
+}
+
+func readUploadURL(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var payload struct {
+		SignedURL string `json:"signed_url"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return "", err
+	}
+	return payload.SignedURL, nil
 }
 
 func readFileTail(path string, maxBytes int64) (string, error) {
