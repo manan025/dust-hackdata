@@ -124,11 +124,7 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"workdir":           workdir,
-		"repodir":           repoDir,
-		"artifacts":         artifactsDir,
-		"log_output":        logPath,
-		"perf_agent_output": logTail,
+		"output": logTail,
 	})
 }
 
