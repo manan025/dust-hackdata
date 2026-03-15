@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "perf-agent"
+version = "0.1.0"
+description = "AI-powered Linux perf profiler CLI"
+requires-python = ">=3.11"
+dependencies = [
+    "rich>=13.0",
+    "requests>=2.28",
+]
+
+[project.scripts]
+perf-agent = "perf_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["perf_agent*"]
