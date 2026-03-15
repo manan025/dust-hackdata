@@ -5,12 +5,15 @@
   import MetricGraph from '$lib/components/ui/metric-graph.svelte';
   import type { Project } from '$lib/types';
 
+  const SHOW_GRAPH = false;
+  const SHOW_SECONDARY_ACTIONS = false;
+
   let {
     project,
     onRunProfiling
   }: {
     project: Project;
-    onRunProfiling: (projectId: string) => void;
+    onRunProfiling: (projectId: string) => Promise<void> | void;
   } = $props();
 
   let showGraph = $state(false);
@@ -32,18 +35,31 @@
   </td>
   <td class="px-4 py-4">
     <div class="flex items-center gap-2">
-      <Button variant="outline" size="sm" onclick={() => (showGraph = !showGraph)}>
-        Graph
+      <Button onclick={() => onRunProfiling(project.id)} disabled={project.isProfiling}>
+        {project.isProfiling ? 'Profiling...' : 'Start Profile'}
       </Button>
-      <Dropdown>
-        <span slot="trigger">...</span>
-        <button class="block w-full rounded px-2 py-1 text-left text-sm hover:bg-accent" onclick={() => onRunProfiling(project.id)}>
-          Start profiling
-        </button>
-        <a href={`/projects/${project.id}`} class="block rounded px-2 py-1 text-sm hover:bg-accent">Open details</a>
-      </Dropdown>
+
+      {#if SHOW_GRAPH}
+        <Button variant="outline" size="sm" onclick={() => (showGraph = !showGraph)}>
+          Graph
+        </Button>
+      {/if}
+
+      {#if SHOW_SECONDARY_ACTIONS}
+        <Dropdown>
+          <span slot="trigger">...</span>
+          <a href={`/projects/${project.id}`} class="block rounded px-2 py-1 text-sm hover:bg-accent">Open details</a>
+        </Dropdown>
+      {/if}
     </div>
-    {#if showGraph}
+
+    {#if project.profilingError}
+      <div class="mt-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+        {project.profilingError}
+      </div>
+    {/if}
+
+    {#if SHOW_GRAPH && showGraph}
       <div class="mt-2 rounded-md border border-border p-2 text-muted-foreground">
         <MetricGraph values={project.trend} />
       </div>

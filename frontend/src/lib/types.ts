@@ -10,6 +10,14 @@ export type ProfilingMetric = {
   memoryMb: number;
 };
 
+export type ProfilingRunRecord = {
+  id: string;
+  createdAt: string;
+  url: string;
+  output: string;
+  zip: string;
+};
+
 export type Project = {
   id: string;
   name: string;
@@ -17,11 +25,16 @@ export type Project = {
   githubUrl?: string;
   sourceFileName?: string;
   sourceFileUrl?: string;
-  binaryFileName: string;
   architectures: Architecture[];
   profilingRuns: number;
   trend: number[];
   metrics: ProfilingMetric[];
+  isProfiling?: boolean;
+  profilingError?: string;
+  lastProfilingOutput?: string;
+  lastProfiledAt?: string;
+  lastImprovedZip?: string;
+  profilingHistory: ProfilingRunRecord[];
 };
 
 export type NewProjectPayload = {
@@ -30,6 +43,5 @@ export type NewProjectPayload = {
   githubUrl?: string;
   sourceFileName?: string;
   sourceFileUrl?: string;
-  binaryFileName: string;
   architectures: Architecture[];
 };

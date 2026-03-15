@@ -8,7 +8,6 @@ export const initialProjects: Project[] = [
 		name: 'checkout-service',
 		sourceType: 'github',
 		githubUrl: 'https://github.com/acme/checkout-service',
-		binaryFileName: 'checkout-linux-amd64',
 		architectures: ['x86_64', 'arm64'],
 		profilingRuns: 6,
 		trend: [42, 44, 43, 45, 47, 49],
@@ -27,7 +26,8 @@ export const initialProjects: Project[] = [
 				cpuPercent: 58,
 				memoryMb: 205
 			}
-		]
+		],
+		profilingHistory: []
 	},
 	{
 		id: 'proj-2',
@@ -36,7 +36,6 @@ export const initialProjects: Project[] = [
 		sourceFileName: 'image-inference.zip',
 		sourceFileUrl:
 			'https://example.supabase.co/storage/v1/object/public/project-sources/demo/image-inference.zip',
-		binaryFileName: 'inference.wasm',
 		architectures: ['wasm32', 'x86_64'],
 		profilingRuns: 3,
 		trend: [58, 52, 51, 48, 49, 47],
@@ -48,6 +47,7 @@ export const initialProjects: Project[] = [
 				cpuPercent: 72,
 				memoryMb: 291
 			}
-		]
+		],
+		profilingHistory: []
 	}
 ];
