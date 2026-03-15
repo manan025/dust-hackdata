@@ -7,12 +7,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 )
 
 type githubWebhookPR struct {
-	Action      string `json:"action"`
-	Repository  struct {
+	Action     string `json:"action"`
+	Repository struct {
 		Owner struct {
 			Login string `json:"login"`
 		} `json:"owner"`
