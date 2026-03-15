@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"hackdata/config"
@@ -11,7 +12,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const dockerRunTimeout = 60 * time.Minute
 
 type runPipelineRequest struct {
 	URL        string `json:"url"`
@@ -71,6 +75,11 @@ func (c *Controllers) runPipeline(req runPipelineRequest) (pipelineResult, int, 
 		c.logger.Error("failed to create temp dir", "error", err)
 		return result, http.StatusInternalServerError, fmt.Errorf("failed to create temp dir")
 	}
+	defer func() {
+		if err := os.RemoveAll(workdir); err != nil {
+			c.logger.Warn("failed to remove temp dir", "path", workdir, "error", err)
+		}
+	}()
 
 	if isZipURL(req.URL) {
 		if err := downloadAndExtractZip(req.URL, workdir); err != nil {
@@ -94,9 +103,13 @@ func (c *Controllers) runPipeline(req runPipelineRequest) (pipelineResult, int, 
 		if _, err := os.Stat(filepath.Join(repoDir, ".git")); err != nil {
 			return result, http.StatusBadRequest, fmt.Errorf("commit reset requires a git repo")
 		}
-		if err := gitResetHard(repoDir, commit); err != nil {
-			c.logger.Error("failed to reset to commit", "commit", commit, "error", err)
-			return result, http.StatusBadRequest, fmt.Errorf("failed to reset to commit")
+		if err := gitFetchCommit(repoDir, commit); err != nil {
+			c.logger.Error("failed to fetch commit", "commit", commit, "error", err)
+			return result, http.StatusBadRequest, fmt.Errorf("failed to fetch commit")
+		}
+		if err := gitCheckoutCommit(repoDir, commit); err != nil {
+			c.logger.Error("failed to checkout commit", "commit", commit, "error", err)
+			return result, http.StatusBadRequest, fmt.Errorf("failed to checkout commit")
 		}
 	}
 
@@ -153,10 +166,16 @@ func (c *Controllers) runPipeline(req runPipelineRequest) (pipelineResult, int, 
 		"/runner/run_in_container.sh",
 		"/work",
 	)
-	runCmd := exec.Command("docker", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), dockerRunTimeout)
+	defer cancel()
+	runCmd := exec.CommandContext(ctx, "docker", args...)
 	runCmd.Stdout = logFile
 	runCmd.Stderr = logFile
 	if err := runCmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			c.logger.Error("pipeline execution timed out", "timeout", dockerRunTimeout, "log", logPath)
+			return result, http.StatusGatewayTimeout, fmt.Errorf("pipeline execution timed out; see artifacts log")
+		}
 		c.logger.Error("pipeline execution failed", "error", err, "log", logPath)
 		return result, http.StatusInternalServerError, fmt.Errorf("pipeline execution failed; see artifacts log")
 	}
@@ -209,18 +228,6 @@ func readUploadURL(path string) (string, error) {
 		return "", err
 	}
 	return payload.SignedURL, nil
-}
-
-func gitResetHard(repoDir, commit string) error {
-	verify := exec.Command("git", "-C", repoDir, "rev-parse", "--verify", commit)
-	if err := verify.Run(); err != nil {
-		fetch := exec.Command("git", "-C", repoDir, "fetch", "--depth", "1", "origin", commit)
-		_ = fetch.Run()
-	}
-	reset := exec.Command("git", "-C", repoDir, "reset", "--hard", commit)
-	reset.Stdout = os.Stdout
-	reset.Stderr = os.Stderr
-	return reset.Run()
 }
 
 func readFileTail(path string, maxBytes int64) (string, error) {

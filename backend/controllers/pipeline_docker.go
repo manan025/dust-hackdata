@@ -1,15 +1,18 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
 	"hackdata/config"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 )
 
 const dockerImage = "hackdata-runner:latest"
+const dockerBuildTimeout = 30 * time.Minute
 
 func ensureDockerImage(repoRoot string, logger *slog.Logger) error {
 	if !config.RebuildImage {
@@ -20,11 +23,19 @@ func ensureDockerImage(repoRoot string, logger *slog.Logger) error {
 	}
 
 	dockerfile := filepath.Join(repoRoot, "Dockerfile")
-	build := exec.Command("docker", "build", "-t", dockerImage, "-f", dockerfile, repoRoot)
+	ctx, cancel := context.WithTimeout(context.Background(), dockerBuildTimeout)
+	defer cancel()
+	build := exec.CommandContext(ctx, "docker", "build", "-t", dockerImage, "-f", dockerfile, repoRoot)
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr
 	logger.Info("building docker image", "image", dockerImage)
-	return build.Run()
+	if err := build.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("docker build timed out after %s", dockerBuildTimeout)
+		}
+		return err
+	}
+	return nil
 }
 
 func findRepoRoot() (string, error) {

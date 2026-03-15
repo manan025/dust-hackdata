@@ -632,19 +632,19 @@ def _run_docker_path(p: argparse.ArgumentParser, ns: argparse.Namespace, binary_
                 history, output_path = optimizer.run_optimize_loop(config)
                 display.show_optimization_summary(history, output_path)
 
-            else:
-                # --- Docker analysis-only path ---
-                chunks = llm.stream_analysis(
-                    metrics=metrics,
-                    functions=functions,
-                    binary=binary_display,
-                    model=ns.model,
-                base_url=ns.openai_url,
-                api_key=ns.openai_api_key,
-                think=not ns.no_think,
-                target_context=target_spec.llm_context,
-            )
-                display.stream_llm_panel(chunks)
+			else:
+				# --- Docker analysis-only path ---
+				chunks = llm.stream_analysis(
+					metrics=metrics,
+					functions=functions,
+					binary=binary_display,
+					model=ns.model,
+					base_url=ns.openai_url,
+					api_key=ns.openai_api_key,
+					think=not ns.no_think,
+					target_context=target_spec.llm_context,
+				)
+				display.stream_llm_panel(chunks)
 
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
