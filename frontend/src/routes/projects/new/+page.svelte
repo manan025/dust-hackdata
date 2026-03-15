@@ -12,12 +12,13 @@
 
   let sourceType = $state<SourceType>('github');
   let name = $state('');
-  let framework = $state('SvelteKit');
   let githubUrl = $state('');
   let sourceFileName = $state('');
-  let binaryFileName = $state('');
+  let sourceFileUrl = $state('');
+  let sourceFile = $state<File | null>(null);
   let selectedArchitectures = $state<Architecture[]>(['x86_64']);
   let error = $state('');
+  let isUploading = $state(false);
 
   function toggleArchitecture(architecture: Architecture, checked: boolean) {
     if (checked) {
@@ -26,6 +27,36 @@
     }
 
     selectedArchitectures = selectedArchitectures.filter((item) => item !== architecture);
+  }
+
+  function onSourceFileChange(event: Event) {
+    const target = event.currentTarget as HTMLInputElement;
+    sourceFile = target.files?.[0] ?? null;
+    sourceFileName = sourceFile?.name ?? '';
+    sourceFileUrl = '';
+  }
+
+  async function uploadSource() {
+    if (!sourceFile) {
+      throw new Error('Select a source file before uploading.');
+    }
+
+    const formData = new FormData();
+    formData.append('file', sourceFile);
+
+    const response = await fetch('/api/uploads/source', {
+      method: 'POST',
+      body: formData
+    });
+
+    const result = (await response.json()) as { url?: string; name?: string; error?: string };
+
+    if (!response.ok || !result.url) {
+      throw new Error(result.error ?? 'Failed to upload source file.');
+    }
+
+    sourceFileUrl = result.url;
+    sourceFileName = result.name ?? sourceFile.name;
   }
 
   async function submit() {
@@ -41,14 +72,23 @@
       return;
     }
 
-    if (sourceType === 'upload' && !sourceFileName.trim()) {
-      error = 'Source code file name is required in upload mode.';
-      return;
-    }
+    if (sourceType === 'upload') {
+      if (!sourceFile) {
+        error = 'Source code file is required in upload mode.';
+        return;
+      }
 
-    if (!binaryFileName.trim()) {
-      error = 'Binary file name is required.';
-      return;
+      if (!sourceFileUrl) {
+        try {
+          isUploading = true;
+          await uploadSource();
+        } catch (uploadError) {
+          error = uploadError instanceof Error ? uploadError.message : 'Upload failed.';
+          return;
+        } finally {
+          isUploading = false;
+        }
+      }
     }
 
     if (selectedArchitectures.length === 0) {
@@ -58,11 +98,10 @@
 
     projectStore.addProject({
       name,
-      framework,
       sourceType,
       githubUrl: sourceType === 'github' ? githubUrl : undefined,
       sourceFileName: sourceType === 'upload' ? sourceFileName : undefined,
-      binaryFileName,
+      sourceFileUrl: sourceType === 'upload' ? sourceFileUrl : undefined,
       architectures: selectedArchitectures
     });
 
@@ -74,28 +113,22 @@
   <div>
     <a href="/" class="text-sm text-muted-foreground hover:underline">Back to dashboard</a>
     <h1 class="mt-1 text-2xl font-semibold">Add new project</h1>
-    <p class="text-sm text-muted-foreground">Link GitHub or upload source code, then attach binary and target architectures.</p>
+    <p class="text-sm text-muted-foreground">Link GitHub or upload source code and choose target architectures.</p>
   </div>
 
   <Card class="space-y-6 p-6">
-    <div class="grid gap-4 md:grid-cols-2">
-      <div class="space-y-2">
-        <Label for="name">Project name</Label>
-        <Input id="name" bind:value={name} placeholder="example-service" />
-      </div>
-      <div class="space-y-2">
-        <Label for="framework">Framework</Label>
-        <Input id="framework" bind:value={framework} placeholder="SvelteKit, Rust, Node" />
-      </div>
+    <div class="space-y-2">
+      <Label for="name">Project name</Label>
+      <Input id="name" bind:value={name} placeholder="example-service" />
     </div>
 
     <div class="space-y-3 rounded-lg border border-border p-4">
       <div class="text-sm font-medium">Source setup</div>
       <div class="flex gap-2">
-        <Button variant={sourceType === 'github' ? 'default' : 'outline'} size="sm" on:click={() => (sourceType = 'github')}>
+        <Button variant={sourceType === 'github' ? 'default' : 'outline'} size="sm" onclick={() => (sourceType = 'github')}>
           GitHub link
         </Button>
-        <Button variant={sourceType === 'upload' ? 'default' : 'outline'} size="sm" on:click={() => (sourceType = 'upload')}>
+        <Button variant={sourceType === 'upload' ? 'default' : 'outline'} size="sm" onclick={() => (sourceType = 'upload')}>
           Upload source
         </Button>
       </div>
@@ -106,16 +139,27 @@
           <Input id="github" bind:value={githubUrl} placeholder="https://github.com/org/repo" />
         </div>
       {:else}
-        <div class="space-y-2">
-          <Label for="sourcefile">Source code file name</Label>
-          <Input id="sourcefile" bind:value={sourceFileName} placeholder="repo-source.zip" />
+        <div class="space-y-3">
+          <div class="space-y-2">
+            <Label for="sourcefile">Source code file</Label>
+            <input
+              id="sourcefile"
+              name="sourcefile"
+              type="file"
+              class="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              onchange={onSourceFileChange}
+            />
+            <p class="text-xs text-muted-foreground">Only file uploads are accepted in this mode.</p>
+          </div>
+
+          {#if sourceFileUrl}
+            <div class="rounded-md border border-border p-3">
+              <div class="text-xs text-muted-foreground">Uploaded source URL</div>
+              <a href={sourceFileUrl} target="_blank" rel="noreferrer" class="text-sm text-primary hover:underline">{sourceFileUrl}</a>
+            </div>
+          {/if}
         </div>
       {/if}
-    </div>
-
-    <div class="space-y-2">
-      <Label for="binary">Binary file name</Label>
-      <Input id="binary" bind:value={binaryFileName} placeholder="app-linux-amd64 or app.wasm" />
     </div>
 
     <div class="space-y-3 rounded-lg border border-border p-4">
@@ -139,9 +183,8 @@
     {/if}
 
     <div class="flex gap-2">
-      <Button on:click={submit}>Create project</Button>
+      <Button onclick={submit} disabled={isUploading}>{isUploading ? 'Uploading...' : 'Create project'}</Button>
       <a href="/"><Button variant="outline">Cancel</Button></a>
     </div>
   </Card>
 </section>
-
