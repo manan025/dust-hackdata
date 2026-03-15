@@ -7,12 +7,17 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 )
 
 type githubWebhookPR struct {
 	Action      string `json:"action"`
+	Repository  struct {
+		Owner struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+		Name string `json:"name"`
+	} `json:"repository"`
 	PullRequest struct {
 		Head struct {
 			SHA  string `json:"sha"`
@@ -68,12 +73,16 @@ func (c *Controllers) GitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing repo or commit", http.StatusBadRequest)
 		return
 	}
+	repoOwner := strings.TrimSpace(payload.Repository.Owner.Login)
+	repoName := strings.TrimSpace(payload.Repository.Name)
 
 	go func() {
 		_, _, _ = c.runPipeline(runPipelineRequest{
 			URL:        cloneURL,
 			Commit:     commit,
 			BaseBranch: base,
+			RepoOwner:  repoOwner,
+			RepoName:   repoName,
 		})
 	}()
 

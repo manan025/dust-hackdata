@@ -82,6 +82,14 @@ def parse_hot_symbols(report_text: str, limit: int = 10) -> list[str]:
     return symbols
 
 
+def parse_task_clock_ms(stat_output: str) -> float | None:
+    """Extract task-clock value in milliseconds from perf stat output."""
+    m = re.search(r"([\d,]+\.?\d*)\s+msec\s+task-clock", stat_output)
+    if m:
+        return float(m.group(1).replace(",", ""))
+    return None
+
+
 def iter_source_files(root: Path) -> list[Path]:
     files: list[Path] = []
     for path in root.rglob("*"):
@@ -177,6 +185,15 @@ def build_prompt(
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
+def extract_json(text: str) -> str:
+    """Strip markdown code fences from LLM response if present."""
+    text = text.strip()
+    m = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+    if m:
+        return m.group(1).strip()
+    return text
+
+
 def call_openai(messages: list[dict[str, str]], model: str, base_url: str, api_key: str) -> str:
     url = f"{base_url.rstrip('/')}/chat/completions"
     payload = {"model": model, "messages": messages, "temperature": 0.2}
@@ -213,6 +230,17 @@ def apply_changes(repo_root: Path, payload: dict) -> list[str]:
     return changed
 
 
+def run_build(build_cmd: str, timeout: int = 300) -> bool:
+    """Rebuild the binary after source changes. Returns True on success."""
+    if not build_cmd:
+        return True
+    result = run_cmd(["bash", "-lc", build_cmd], timeout=timeout)
+    if result.returncode != 0:
+        print(f"[build] FAILED:\n{result.stdout}\n{result.stderr}", flush=True)
+        return False
+    return True
+
+
 def zip_source(repo_root: Path, out_path: Path) -> None:
     with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for path in iter_source_files(repo_root):
@@ -247,7 +275,14 @@ def supabase_upload(
     )
     if resp.status_code < 400:
         data = resp.json()
-        signed_url = f"{supabase_url.rstrip('/')}{data.get('signedURL', '')}"
+        raw_path = data.get("signedURL", "")
+        # Normalise: strip /storage/v1 suffix from base URL so we never double it
+        base = re.sub(r"/storage/v1$", "", supabase_url.rstrip("/"))
+        if raw_path and not raw_path.startswith("/storage/v1"):
+            raw_path = "/storage/v1" + raw_path
+        signed_url = base + raw_path
+    else:
+        print(f"[supabase] signed URL request failed {resp.status_code}: {resp.text[:200]}", flush=True)
     return object_name, signed_url
 
 
@@ -264,14 +299,17 @@ def _log_line(log_path: Path, msg: str) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Profile a command with perf and apply OpenAI recommendations.")
+    parser = argparse.ArgumentParser(description="Profile a command with perf and apply OpenAI recommendations iteratively.")
     parser.add_argument("--command", required=True, help="Command to profile")
     parser.add_argument("--out-dir", required=True, help="Directory to write perf.data/perf.txt/llm_output.txt")
     parser.add_argument("--timeout", type=int, default=120, help="Perf timeout seconds")
     parser.add_argument("--model", default="gpt-4o-mini", help="OpenAI model")
     parser.add_argument("--openai-url", default="https://api.openai.com/v1", help="OpenAI base URL")
     parser.add_argument("--openai-api-key", default=None, help="OpenAI API key (or OPENAI_API_KEY env)")
-    parser.add_argument("--recommendations", type=int, default=3, help="Number of recommendations to request")
+    parser.add_argument("--recommendations", type=int, default=3, help="Max code changes to request per LLM call")
+    parser.add_argument("--max-iterations", type=int, default=3, help="Max perf→LLM→apply→rebuild cycles")
+    parser.add_argument("--convergence-threshold", type=float, default=0.05, help="Stop when improvement < this fraction (default 5%%)")
+    parser.add_argument("--build-cmd", default="", help="Shell command to rebuild the binary after source changes")
     parser.add_argument("--repo-root", default=".", help="Repository root path")
     args = parser.parse_args()
 
@@ -279,6 +317,7 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     repo_root = Path(args.repo_root).resolve()
 
+<<<<<<< HEAD
     log_path = out_dir / "perf_recommend.log"
     _log_line(log_path, "perf_recommend: start")
 
@@ -308,11 +347,44 @@ def main() -> int:
         messages = build_prompt(
             args.command,
             stat_text,
+=======
+    api_key = args.openai_api_key or os.getenv("OPENAI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("Missing OPENAI_API_KEY")
+
+    # ── Baseline profile ──────────────────────────────────────────────────────
+    print("[baseline] Running perf stat...", flush=True)
+    baseline_stat = perf_stat(args.command, args.timeout)
+    baseline_time = parse_task_clock_ms(baseline_stat)
+    if baseline_time:
+        print(f"[baseline] task-clock: {baseline_time:.1f} ms", flush=True)
+    else:
+        print("[baseline] Could not parse task-clock from perf stat output.", flush=True)
+
+    print("[baseline] Running perf record/report...", flush=True)
+    report_text = perf_record_report(args.command, out_dir, args.timeout)
+
+    all_outputs: list[str] = []
+    prev_time = baseline_time
+    total_changed: list[str] = []
+
+    # ── Iterative optimisation loop ───────────────────────────────────────────
+    for iteration in range(1, args.max_iterations + 1):
+        print(f"\n[iter {iteration}/{args.max_iterations}] Selecting source files...", flush=True)
+        symbols = parse_hot_symbols(report_text)
+        selected_files = select_source_files(repo_root, symbols, max_files=3)
+        source_bundle = read_source_bundle(selected_files)
+
+        messages = build_prompt(
+            args.command,
+            baseline_stat if iteration == 1 else perf_stat(args.command, args.timeout),
+>>>>>>> 39914ba8ef2c1e46676af07a534ff74200207cf9
             report_text,
             source_bundle,
             args.recommendations,
             selected_files,
         )
+<<<<<<< HEAD
         response = call_openai(messages, args.model, args.openai_url, api_key)
         _log_line(log_path, "openai: ok")
 
@@ -330,7 +402,67 @@ def main() -> int:
     except Exception as exc:
         result["error"] = str(exc)
         _log_line(log_path, f"error: {exc}")
+=======
 
+        print(f"[iter {iteration}/{args.max_iterations}] Calling LLM...", flush=True)
+        response = call_openai(messages, args.model, args.openai_url, api_key)
+        all_outputs.append(f"=== Iteration {iteration} ===\n{response}")
+
+        try:
+            payload = json.loads(extract_json(response))
+        except json.JSONDecodeError:
+            payload = {}
+
+        changed = apply_changes(repo_root, payload)
+        total_changed.extend(changed)
+        print(f"[iter {iteration}/{args.max_iterations}] Applied changes to: {changed or '(none)'}", flush=True)
+
+        if not changed:
+            print(f"[iter {iteration}/{args.max_iterations}] No changes suggested, stopping early.", flush=True)
+            break
+
+        # Rebuild binary with updated source
+        if args.build_cmd:
+            print(f"[iter {iteration}/{args.max_iterations}] Rebuilding...", flush=True)
+            if not run_build(args.build_cmd, args.timeout):
+                print(f"[iter {iteration}/{args.max_iterations}] Build failed, stopping.", flush=True)
+                break
+
+        # Profile after changes to measure improvement
+        print(f"[iter {iteration}/{args.max_iterations}] Re-profiling after changes...", flush=True)
+        new_stat = perf_stat(args.command, args.timeout)
+        report_text = perf_record_report(args.command, out_dir, args.timeout)
+        new_time = parse_task_clock_ms(new_stat)
+
+        if prev_time and new_time:
+            improvement = (prev_time - new_time) / prev_time
+            print(
+                f"[iter {iteration}/{args.max_iterations}] task-clock: {new_time:.1f} ms "
+                f"(improvement: {improvement:+.1%} vs previous {prev_time:.1f} ms)",
+                flush=True,
+            )
+            if improvement < args.convergence_threshold:
+                print(
+                    f"[iter {iteration}/{args.max_iterations}] Improvement {improvement:.1%} < "
+                    f"{args.convergence_threshold:.0%} threshold — converged.",
+                    flush=True,
+                )
+                break
+            prev_time = new_time
+        else:
+            print(f"[iter {iteration}/{args.max_iterations}] Could not measure improvement, stopping.", flush=True)
+            break
+
+    if baseline_time and prev_time:
+        total_improvement = (baseline_time - prev_time) / baseline_time
+        print(f"\n[done] Total improvement: {total_improvement:+.1%} ({baseline_time:.1f} ms → {prev_time:.1f} ms)", flush=True)
+
+    # ── Write LLM output ──────────────────────────────────────────────────────
+    llm_path = out_dir / "llm_output.txt"
+    llm_path.write_text("\n\n".join(all_outputs), encoding="utf-8")
+>>>>>>> 39914ba8ef2c1e46676af07a534ff74200207cf9
+
+    # ── Zip final source state ────────────────────────────────────────────────
     zip_path = out_dir / "source.zip"
     try:
         _log_line(log_path, f"zip_source: {zip_path}")
@@ -343,10 +475,13 @@ def main() -> int:
         print(json.dumps(result))
         return 1
 
+    # ── Upload to Supabase ────────────────────────────────────────────────────
     supabase_url = os.getenv("SUPABASE_URL", "")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     supabase_bucket = os.getenv("SUPABASE_SOURCE_BUCKET", "")
+
     if not supabase_url or not supabase_key or not supabase_bucket:
+<<<<<<< HEAD
         result["upload_error"] = "Missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SOURCE_BUCKET"
         _log_line(log_path, "upload_error: missing supabase env")
         _write_upload_json(out_dir, result)
@@ -366,6 +501,23 @@ def main() -> int:
         _log_line(log_path, f"upload_error: {exc}")
 
     _write_upload_json(out_dir, result)
+=======
+        print("[supabase] Missing env vars (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SOURCE_BUCKET) — skipping upload.", flush=True)
+        result = {
+            "changed_files": total_changed,
+            "zip_object": "",
+            "signed_url": "",
+        }
+    else:
+        object_name, signed_url = supabase_upload(supabase_url, supabase_key, supabase_bucket, zip_path)
+        result = {
+            "changed_files": total_changed,
+            "zip_object": object_name,
+            "signed_url": signed_url,
+        }
+
+    (out_dir / "upload.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+>>>>>>> 39914ba8ef2c1e46676af07a534ff74200207cf9
     print(json.dumps(result))
     _log_line(log_path, "perf_recommend: done")
     return 0

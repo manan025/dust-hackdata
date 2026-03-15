@@ -217,7 +217,8 @@ profile_cmd="$run_cmd"
 echo "Profiling command with perf-recommend: $profile_cmd"
 python3 /runner/perf_recommend.py \
   --command "$profile_cmd" \
-  --recommendations "$PERF_RECOMMENDATIONS" \
+  --build-cmd "$build_cmd" \
+  --max-iterations "$PERF_RECOMMENDATIONS" \
   --model "$OPENAI_MODEL" \
   --openai-url "$OPENAI_BASE_URL" \
   --out-dir "$OUTDIR" \
