@@ -34,6 +34,7 @@ func (m *Mux) routes() {
 	m.mux.HandleFunc("/api", ctrl.API)
 	m.mux.HandleFunc("/test", ctrl.Test)
 	m.mux.HandleFunc("/api/run_pipeline", ctrl.RunPipeline)
+	m.mux.HandleFunc("/api/github/webhook", ctrl.GitHubWebhook)
 }
 
 func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -14,7 +14,9 @@ import (
 )
 
 type runPipelineRequest struct {
-	URL string `json:"url"`
+	URL        string `json:"url"`
+	Commit     string `json:"commit"`
+	BaseBranch string `json:"base_branch"`
 }
 
 func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
@@ -33,52 +35,83 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	result, status, err := c.runPipeline(req)
+	if err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if strings.TrimSpace(req.Commit) != "" {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"pr_url": result.PullRequestURL,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"output": result.Output,
+		"zip":    result.ZipURL,
+	})
+}
+
+type pipelineResult struct {
+	RepoDir        string
+	ArtifactsDir   string
+	LogPath        string
+	Output         string
+	ZipURL         string
+	PullRequestURL string
+}
+
+func (c *Controllers) runPipeline(req runPipelineRequest) (pipelineResult, int, error) {
+	var result pipelineResult
+
 	workdir, err := os.MkdirTemp("/tmp", "hackdata-")
 	if err != nil {
 		c.logger.Error("failed to create temp dir", "error", err)
-		http.Error(w, "failed to create temp dir", http.StatusInternalServerError)
-		return
+		return result, http.StatusInternalServerError, fmt.Errorf("failed to create temp dir")
 	}
 
 	if isZipURL(req.URL) {
 		if err := downloadAndExtractZip(req.URL, workdir); err != nil {
 			c.logger.Error("failed to download zip", "url", req.URL, "error", err)
-			http.Error(w, "failed to download zip", http.StatusBadRequest)
-			return
+			return result, http.StatusBadRequest, fmt.Errorf("failed to download zip")
 		}
 	} else {
 		dest := filepath.Join(workdir, "repo")
 		if err := gitClone(req.URL, dest); err != nil {
 			c.logger.Error("failed to clone repo", "url", req.URL, "error", err)
-			http.Error(w, "failed to clone repo", http.StatusBadRequest)
-			return
+			return result, http.StatusBadRequest, fmt.Errorf("failed to clone repo")
 		}
 	}
 
 	repoDir, err := detectRepoDir(workdir)
 	if err != nil {
 		c.logger.Error("failed to detect repo dir", "workdir", workdir, "error", err)
-		http.Error(w, "failed to detect repo dir", http.StatusInternalServerError)
-		return
+		return result, http.StatusInternalServerError, fmt.Errorf("failed to detect repo dir")
+	}
+	if commit := strings.TrimSpace(req.Commit); commit != "" {
+		if _, err := os.Stat(filepath.Join(repoDir, ".git")); err != nil {
+			return result, http.StatusBadRequest, fmt.Errorf("commit reset requires a git repo")
+		}
+		if err := gitResetHard(repoDir, commit); err != nil {
+			c.logger.Error("failed to reset to commit", "commit", commit, "error", err)
+			return result, http.StatusBadRequest, fmt.Errorf("failed to reset to commit")
+		}
 	}
 
 	artifactsDir := filepath.Join(workdir, "artifacts")
 	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
 		c.logger.Error("failed to create artifacts dir", "error", err)
-		http.Error(w, "failed to create artifacts dir", http.StatusInternalServerError)
-		return
+		return result, http.StatusInternalServerError, fmt.Errorf("failed to create artifacts dir")
 	}
 
 	repoRoot, err := findRepoRoot()
 	if err != nil {
 		c.logger.Error("failed to locate repo root", "error", err)
-		http.Error(w, "failed to locate repo root", http.StatusInternalServerError)
-		return
+		return result, http.StatusInternalServerError, fmt.Errorf("failed to locate repo root")
 	}
 	if err := ensureDockerImage(repoRoot, c.logger); err != nil {
 		c.logger.Error("failed to build docker image", "error", err)
-		http.Error(w, "failed to build docker image", http.StatusInternalServerError)
-		return
+		return result, http.StatusInternalServerError, fmt.Errorf("failed to build docker image")
 	}
 
 	logPath := filepath.Join(artifactsDir, "pipeline.log")
@@ -86,8 +119,7 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		c.logger.Error("failed to create log file", "error", err)
-		http.Error(w, "failed to create log file", http.StatusInternalServerError)
-		return
+		return result, http.StatusInternalServerError, fmt.Errorf("failed to create log file")
 	}
 	defer logFile.Close()
 
@@ -124,8 +156,7 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 	runCmd.Stderr = logFile
 	if err := runCmd.Run(); err != nil {
 		c.logger.Error("pipeline execution failed", "error", err, "log", logPath)
-		http.Error(w, "pipeline execution failed; see artifacts log", http.StatusInternalServerError)
-		return
+		return result, http.StatusInternalServerError, fmt.Errorf("pipeline execution failed; see artifacts log")
 	}
 
 	llmPath := filepath.Join(artifactsDir, "llm_output.txt")
@@ -147,10 +178,21 @@ func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
-		"output": llmTail,
-		"zip":    zipURL,
-	})
+	result.RepoDir = repoDir
+	result.ArtifactsDir = artifactsDir
+	result.LogPath = logPath
+	result.Output = llmTail
+	result.ZipURL = zipURL
+
+	if strings.TrimSpace(req.Commit) != "" {
+		baseBranch := strings.TrimSpace(req.BaseBranch)
+		prURL, err := c.commitAndOpenPR(repoDir, req.Commit, baseBranch)
+		if err != nil {
+			return result, http.StatusInternalServerError, err
+		}
+		result.PullRequestURL = prURL
+	}
+	return result, http.StatusOK, nil
 }
 
 func readUploadURL(path string) (string, error) {
@@ -165,6 +207,18 @@ func readUploadURL(path string) (string, error) {
 		return "", err
 	}
 	return payload.SignedURL, nil
+}
+
+func gitResetHard(repoDir, commit string) error {
+	verify := exec.Command("git", "-C", repoDir, "rev-parse", "--verify", commit)
+	if err := verify.Run(); err != nil {
+		fetch := exec.Command("git", "-C", repoDir, "fetch", "--depth", "1", "origin", commit)
+		_ = fetch.Run()
+	}
+	reset := exec.Command("git", "-C", repoDir, "reset", "--hard", commit)
+	reset.Stdout = os.Stdout
+	reset.Stderr = os.Stderr
+	return reset.Run()
 }
 
 func readFileTail(path string, maxBytes int64) (string, error) {

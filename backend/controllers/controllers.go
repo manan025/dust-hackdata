@@ -35,7 +35,12 @@ func (c *Controllers) API(w http.ResponseWriter, r *http.Request) {
 			{
 				"method":      http.MethodPost,
 				"path":        "/api/run_pipeline",
-				"description": "Download a git repo or zip into /tmp, run tests and perf profiling in Docker.",
+				"description": "Download a git repo or zip into /tmp, optionally reset to a commit; if commit is provided, run optimizations and open a PR.",
+			},
+			{
+				"method":      http.MethodPost,
+				"path":        "/api/github/webhook",
+				"description": "GitHub webhook endpoint for pull_request events to trigger optimization PRs.",
 			},
 		},
 	})
