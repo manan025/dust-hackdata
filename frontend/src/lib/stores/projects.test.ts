@@ -8,10 +8,8 @@ describe('projectStore', () => {
 
     projectStore.addProject({
       name: 'unit-test-project',
-      framework: 'SvelteKit',
       sourceType: 'github',
       githubUrl: 'https://github.com/acme/unit-test-project',
-      binaryFileName: 'unit-test-bin',
       architectures: ['x86_64']
     });
 
@@ -29,4 +27,3 @@ describe('projectStore', () => {
     expect(updated?.metrics.length).toBe(1);
   });
 });
-
