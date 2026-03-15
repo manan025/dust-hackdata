@@ -17,6 +17,8 @@ type runPipelineRequest struct {
 	URL        string `json:"url"`
 	Commit     string `json:"commit"`
 	BaseBranch string `json:"base_branch"`
+	RepoOwner  string `json:"repo_owner"`
+	RepoName   string `json:"repo_name"`
 }
 
 func (c *Controllers) RunPipeline(w http.ResponseWriter, r *http.Request) {
@@ -186,7 +188,7 @@ func (c *Controllers) runPipeline(req runPipelineRequest) (pipelineResult, int, 
 
 	if strings.TrimSpace(req.Commit) != "" {
 		baseBranch := strings.TrimSpace(req.BaseBranch)
-		prURL, err := c.commitAndOpenPR(repoDir, req.Commit, baseBranch)
+		prURL, err := c.commitAndOpenPRWithRepo(repoDir, req.Commit, baseBranch, req.RepoOwner, req.RepoName)
 		if err != nil {
 			return result, http.StatusInternalServerError, err
 		}

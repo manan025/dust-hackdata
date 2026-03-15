@@ -67,8 +67,22 @@ func loadGitHubAppConfig() (githubAppConfig, error) {
 	return cfg, nil
 }
 
-func (c *Controllers) commitAndOpenPR(repoDir, commit, baseBranch string) (string, error) {
+func loadGitHubAppConfigWithRepo(owner, name string) (githubAppConfig, error) {
 	cfg, err := loadGitHubAppConfig()
+	if err != nil {
+		return cfg, err
+	}
+	if strings.TrimSpace(owner) != "" {
+		cfg.RepoOwner = strings.TrimSpace(owner)
+	}
+	if strings.TrimSpace(name) != "" {
+		cfg.RepoName = strings.TrimSpace(name)
+	}
+	return cfg, nil
+}
+
+func (c *Controllers) commitAndOpenPRWithRepo(repoDir, commit, baseBranch, repoOwner, repoName string) (string, error) {
+	cfg, err := loadGitHubAppConfigWithRepo(repoOwner, repoName)
 	if err != nil {
 		return "", err
 	}
@@ -88,7 +102,7 @@ func (c *Controllers) commitAndOpenPR(repoDir, commit, baseBranch string) (strin
 	}
 	branch := fmt.Sprintf("dustbot-optimized-%s", shortSHA)
 
-	if err := gitCheckoutNewBranch(repoDir, branch); err != nil {
+	if err := gitCheckoutNewBranch(repoDir, branch, baseBranch); err != nil {
 		return "", err
 	}
 	changed, err := gitHasChanges(repoDir)
@@ -116,11 +130,15 @@ func gitShortSHA(repoDir, commit string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func gitCheckoutNewBranch(repoDir, branch string) error {
-	cmd := exec.Command("git", "-C", repoDir, "checkout", "-b", branch)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+func gitCheckoutNewBranch(repoDir, branch, baseBranch string) error {
+	fetch := exec.Command("git", "-C", repoDir, "fetch", "origin", baseBranch)
+	if err := fetch.Run(); err != nil {
+		return err
+	}
+	checkout := exec.Command("git", "-C", repoDir, "checkout", "-B", branch, "origin/"+baseBranch)
+	checkout.Stdout = os.Stdout
+	checkout.Stderr = os.Stderr
+	return checkout.Run()
 }
 
 func gitHasChanges(repoDir string) (bool, error) {
@@ -151,7 +169,7 @@ func gitCommitAll(repoDir, name, email, baseCommit string) error {
 
 func gitPushBranch(repoDir string, cfg githubAppConfig, token, branch string) error {
 	remote := fmt.Sprintf("https://x-access-token:%s@github.com/%s/%s.git", token, cfg.RepoOwner, cfg.RepoName)
-	cmd := exec.Command("git", "-C", repoDir, "push", "-u", remote, branch)
+	cmd := exec.Command("git", "-C", repoDir, "push", "-u", "--force-with-lease", remote, branch)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
