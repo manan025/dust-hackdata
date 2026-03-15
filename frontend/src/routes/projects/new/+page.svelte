@@ -16,7 +16,6 @@
   let sourceFileName = $state('');
   let sourceFileUrl = $state('');
   let sourceFile = $state<File | null>(null);
-  let binaryFileName = $state('');
   let selectedArchitectures = $state<Architecture[]>(['x86_64']);
   let error = $state('');
   let isUploading = $state(false);
@@ -92,11 +91,6 @@
       }
     }
 
-    if (!binaryFileName.trim()) {
-      error = 'Binary file name is required.';
-      return;
-    }
-
     if (selectedArchitectures.length === 0) {
       error = 'Select at least one architecture.';
       return;
@@ -108,7 +102,6 @@
       githubUrl: sourceType === 'github' ? githubUrl : undefined,
       sourceFileName: sourceType === 'upload' ? sourceFileName : undefined,
       sourceFileUrl: sourceType === 'upload' ? sourceFileUrl : undefined,
-      binaryFileName,
       architectures: selectedArchitectures
     });
 
@@ -120,7 +113,7 @@
   <div>
     <a href="/" class="text-sm text-muted-foreground hover:underline">Back to dashboard</a>
     <h1 class="mt-1 text-2xl font-semibold">Add new project</h1>
-    <p class="text-sm text-muted-foreground">Link GitHub or upload source code, then attach binary and target architectures.</p>
+    <p class="text-sm text-muted-foreground">Link GitHub or upload source code and choose target architectures.</p>
   </div>
 
   <Card class="space-y-6 p-6">
@@ -167,11 +160,6 @@
           {/if}
         </div>
       {/if}
-    </div>
-
-    <div class="space-y-2">
-      <Label for="binary">Binary file name</Label>
-      <Input id="binary" bind:value={binaryFileName} placeholder="app-linux-amd64 or app.wasm" />
     </div>
 
     <div class="space-y-3 rounded-lg border border-border p-4">

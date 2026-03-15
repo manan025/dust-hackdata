@@ -4,11 +4,13 @@
   import Card from '$lib/components/ui/card.svelte';
   import Table from '$lib/components/ui/table.svelte';
   import { projectStore } from '$lib/stores/projects';
+  import { goto } from '$app/navigation';
 
   const projects = projectStore;
 
-  function onRunProfiling(projectId: string) {
-    projectStore.runProfiling(projectId);
+  async function onRunProfiling(projectId: string) {
+    await projectStore.startProfiling(projectId);
+    await goto(`/projects/${projectId}`);
   }
 </script>
 

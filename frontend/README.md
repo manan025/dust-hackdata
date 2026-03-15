@@ -9,7 +9,6 @@ A Vercel-inspired dashboard built with **SvelteKit** (no Next.js), featuring:
 - Add-project flow with:
   - GitHub link or source upload mode
   - source file upload to Supabase Storage (returns URL)
-  - binary file input
   - architecture selection
 
 ## Quick start

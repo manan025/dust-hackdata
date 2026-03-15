@@ -10,7 +10,6 @@ describe('projectStore', () => {
       name: 'unit-test-project',
       sourceType: 'github',
       githubUrl: 'https://github.com/acme/unit-test-project',
-      binaryFileName: 'unit-test-bin',
       architectures: ['x86_64']
     });
 
