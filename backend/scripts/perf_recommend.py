@@ -157,7 +157,12 @@ def build_prompt(
         "You are a performance engineering expert specializing in Linux perf analysis. "
         "Analyze the provided profiling data and propose concrete code changes. "
         "Focus on CPU bottlenecks, memory access patterns, branch prediction failures, "
-        "and hot code paths. Be concise and technical."
+        "and hot code paths. Be concise and technical. "
+        "CRITICAL dependency rules: you must track every import/use/require/include "
+        "statement in the original file — never remove any of them. If your changes "
+        "introduce new types, functions, or modules, add the required import statements "
+        "above the existing import block. Never remove existing functions, methods, "
+        "structs, types, or non-performance-related logic."
     )
     file_list = "\n".join(f"- {p.as_posix()}" for p in files) or "(none)"
     user = (
@@ -176,11 +181,16 @@ def build_prompt(
         "{\n"
         '  "summary": "short summary",\n'
         '  "files": [\n'
-        '    {"path": "relative/path.ext", "content": "FULL file contents with changes applied"}\n'
+        '    {"path": "relative/path.ext", "content": "COMPLETE file — all original imports and all original functions must be present; only targeted performance sections are changed"}\n'
         "  ]\n"
         "}\n"
         f"Provide up to {recommendations} changes. Only include files from the scope list.\n"
-        "If you recommend no changes, return an empty files array.\n"
+        "Dependency rules you MUST follow:\n"
+        "1. Include every original import/use/require/include statement unchanged.\n"
+        "2. If you use a new type or function, add its import — do not assume it is in scope.\n"
+        "3. Do NOT remove or rename any existing function, method, struct, or type.\n"
+        "4. Only modify lines inside the hot functions identified by profiling data.\n"
+        "5. If you recommend no changes, return an empty files array.\n"
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
@@ -211,8 +221,9 @@ def call_openai(messages: list[dict[str, str]], model: str, base_url: str, api_k
     return content
 
 
-def apply_changes(repo_root: Path, payload: dict) -> list[str]:
+def apply_changes(repo_root: Path, payload: dict) -> tuple[list[str], dict[str, str]]:
     changed: list[str] = []
+    originals: dict[str, str] = {}
     for item in payload.get("files", []) or []:
         rel_path = item.get("path", "")
         content = item.get("content", "")
@@ -225,9 +236,19 @@ def apply_changes(repo_root: Path, payload: dict) -> list[str]:
             continue
         if target.suffix.lower() not in _SOURCE_EXTS:
             continue
+        originals[rel_path] = target.read_text(encoding="utf-8")
         target.write_text(content, encoding="utf-8")
         changed.append(rel_path)
-    return changed
+    return changed, originals
+
+
+def restore_changes(repo_root: Path, originals: dict[str, str]) -> None:
+    for rel_path, content in originals.items():
+        target = (repo_root / rel_path).resolve()
+        try:
+            target.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            print(f"[rollback] WARNING: could not restore {rel_path}: {exc}", flush=True)
 
 
 def run_build(build_cmd: str, timeout: int = 300) -> bool:
@@ -374,7 +395,7 @@ def main() -> int:
             except json.JSONDecodeError:
                 payload = {}
 
-            changed = apply_changes(repo_root, payload)
+            changed, originals = apply_changes(repo_root, payload)
             total_changed.extend(changed)
             _log_line(log_path, f"changed_files: {changed}")
             print(
@@ -390,7 +411,8 @@ def main() -> int:
             if args.build_cmd:
                 print(f"[iter {iteration}/{args.max_iterations}] Rebuilding...", flush=True)
                 if not run_build(args.build_cmd, args.timeout):
-                    print(f"[iter {iteration}/{args.max_iterations}] Build failed, stopping.", flush=True)
+                    print(f"[iter {iteration}/{args.max_iterations}] Build failed — rolling back.", flush=True)
+                    restore_changes(repo_root, originals)
                     break
 
             # Profile after changes to measure improvement
